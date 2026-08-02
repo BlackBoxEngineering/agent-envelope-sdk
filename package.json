@@ -1,0 +1,48 @@
+{
+  "name": "agent-envelope-sdk",
+  "version": "1.3.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./constants": {
+      "types": "./constants.d.ts",
+      "import": "./src/constants.js"
+    },
+    "./client": {
+      "types": "./client.d.ts",
+      "import": "./src/client.js"
+    },
+    "./avatar": {
+      "types": "./avatar.d.ts",
+      "import": "./src/avatar.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BlackBoxEngineering/agent-envelope-sdk.git"
+  },
+  "files": [
+    "src/",
+    "index.d.ts",
+    "constants.d.ts",
+    "client.d.ts",
+    "avatar.d.ts",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.3.0",
+    "@noble/hashes": "^1.3.3"
+  }
+}
