@@ -23,10 +23,9 @@ export class AgentEnvelopeClient {
 
     async getAgent(agentId) {
         if (typeof agentId !== 'string' || !/^[a-zA-Z0-9_:-]{1,128}$/.test(agentId)) throw new Error('agentId is invalid');
-        const res = await fetch('https://jemdjwteae.execute-api.us-east-1.amazonaws.com/v1/sovereign/agents/lookup', {
-            method: 'POST',
+        const res = await fetch(_BASE + '/sovereign/agents/' + encodeURIComponent(agentId), {
+            method: 'GET',
             headers: this._headers(),
-            body: JSON.stringify({ agentId }),
         });
         return res.json();
     }
