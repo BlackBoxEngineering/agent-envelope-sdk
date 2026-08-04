@@ -34,6 +34,7 @@
     "client.d.ts",
     "avatar.d.ts",
     "README.md",
+    "SECURITY.md",
     "LICENSE",
     "NOTICE"
   ],

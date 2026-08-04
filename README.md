@@ -1,25 +1,38 @@
-# AgentEnvelope v1
+# agent-envelope-sdk
 
-**Cryptographic capabilities for agents. No central issuer. No shared secrets.**
+**Sovereign cryptographic primitives for agent authority. Apache 2.0.**
 
 ---
 
-## The Problem
+## What this is
 
-Every agent-auth system in use today requires a central issuer. OAuth issues tokens. SPIFFE issues certificates. API keys are issued by hand. When an agent needs authority, something has to grant it.
+Stateless cryptographic toolkit — deterministic key derivation, signature creation, signature
+verification, structured message types. Runs offline. No account. No network.
 
-Issued authority has structural weaknesses: tokens can be stolen and replayed, revocation requires infrastructure, hierarchies require nested issuance ceremonies, and scaling to millions of agents means scaling the issuer.
+This is the **substrate**, not the product. Two paths:
 
-## The Model
+- **Build your own authority layer** — derive keys, sign actions, verify signatures, enforce
+  policy in your own infrastructure. Apache 2.0. You own it.
 
-AgentEnvelope derives cryptographic capabilities from a customer-held root — nothing is issued by a
-central service. Each capability is scoped to a specific operation, resource set, and time window.
-Workers sign payloads using their capability. Verifiers check signatures against public records — no
-shared secrets, no central issuer.
+- **Use AgentEnvelope hosted governance** — optional managed layer at
+  [agentenvelope.io](https://agentenvelope.io). Adds vault management, delegate issuance,
+  public records, mint receipts, usage enforcement, audit trails.
 
-Verification always works offline, with no network and no AgentEnvelope key. Hosted attestation
-(`verifyReceipt`) is additive: it certifies AgentEnvelope's own signed statement about a verdict it
-computed. It never gates the offline path.
+Neither path requires the other.
+
+## The cryptographic model
+
+Authority is **derived**, not issued. A single root secret deterministically produces an
+unbounded hierarchy of domain keys, agent identities, and scoped action capabilities. Same
+inputs, same outputs. A child cannot recover its parent. Siblings cannot be inferred from
+each other.
+
+Capabilities are scoped to operation, resource set, and time window. Workers sign payloads.
+Verifiers check signatures against public records — no shared secrets, no central issuer,
+no network.
+
+Verification always works offline. Hosted attestation (`verifyReceipt`) is additive — it
+certifies AgentEnvelope's signed statement about a verdict. It never gates the offline path.
 
 ## Install
 
