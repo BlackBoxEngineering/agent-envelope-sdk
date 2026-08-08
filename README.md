@@ -1,6 +1,6 @@
 # agent-envelope-sdk
 
-**Sovereign cryptographic primitives for agent authority. Apache 2.0.**
+**Sovereign cryptographic primitives for delegated action authority. Apache 2.0.**
 
 ---
 
@@ -8,6 +8,12 @@
 
 Stateless cryptographic toolkit — deterministic key derivation, signature creation, signature
 verification, structured message types. Runs offline. No account. No network.
+
+AgentEnvelope is not limited to AI agents. In the SDK, an "agent" is a bounded
+action identity: a named actor, operation, resource set, decay policy, and
+verifiable address. That actor can be a chatbot, backend worker, workflow step,
+service, device command, access grant, order, instruction, or any other system
+trusted to act.
 
 This is the **substrate**, not the product. Two paths:
 
@@ -23,7 +29,7 @@ Neither path requires the other.
 ## The cryptographic model
 
 Authority is **derived**, not issued. A single root secret deterministically produces an
-unbounded hierarchy of domain keys, agent identities, and scoped action capabilities. Same
+unbounded hierarchy of domain keys, action identities, and scoped action capabilities. Same
 inputs, same outputs. A child cannot recover its parent. Siblings cannot be inferred from
 each other.
 
