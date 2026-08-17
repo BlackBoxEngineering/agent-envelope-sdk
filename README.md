@@ -40,6 +40,14 @@ no network.
 Verification always works offline. Hosted attestation (`verifyReceipt`) is additive — it
 certifies AgentEnvelope's signed statement about a verdict. It never gates the offline path.
 
+## Specification
+
+The canonical AgentEnvelope v1 specification is published in [spec/](spec/README.md).
+
+- [AgentEnvelope v1: Derived Authority Specification](spec/agent-envelope-v1.md)
+- [Deterministic v1 conformance vectors](spec/vectors/v1-core.json)
+- [Provenance record](spec/provenance.md)
+
 ## Install
 
 ```bash

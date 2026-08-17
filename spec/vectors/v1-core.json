@@ -1,0 +1,142 @@
+{
+  "type": "agentenvelope.testVectorSet",
+  "version": 1,
+  "generatedBy": "AgentEnvelope v1 reference implementation",
+  "note": "Deterministic v1 vectors for specification conformance. Seeds are public test material only.",
+  "seeds": {
+    "identityRootHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "botSeedHex": "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff"
+  },
+  "domain": {
+    "input": {
+      "namespace": "agentenvelope",
+      "domainId": "support-ops",
+      "kind": "communication"
+    },
+    "domainInfo": {
+      "type": "agentenvelope.domainInfo",
+      "version": 1,
+      "namespace": "agentenvelope",
+      "domainId": "support-ops",
+      "kind": "communication"
+    },
+    "canonicalDomainInfo": "{\"domainId\":\"support-ops\",\"kind\":\"communication\",\"namespace\":\"agentenvelope\",\"type\":\"agentenvelope.domainInfo\",\"version\":1}",
+    "domainHash": "0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae",
+    "domainAddress": "0x92f1aa3649a528b4ca2e10f726bd66d6fad720ec",
+    "domainFingerprint": "ae-domain-9c416a4bf2c02a5f",
+    "createdAt": "2026-07-24T15:21:54.000Z"
+  },
+  "action": {
+    "envelope": {
+      "type": "agentenvelope.actionEnvelope",
+      "version": 1,
+      "agentId": "support-sender",
+      "domain": {
+        "domainId": "support-ops",
+        "domainHash": "0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae"
+      },
+      "actionIndex": 0,
+      "operation": "send-message",
+      "resources": [
+        "channel:support",
+        "thread:customer-123"
+      ],
+      "timeWindow": {
+        "notBefore": 1786924800000,
+        "notAfter": 1798761599000
+      },
+      "decayPolicy": {
+        "mode": "BOTH"
+      },
+      "limits": {
+        "maxUses": 1,
+        "enforcement": "external"
+      }
+    },
+    "canonicalActionEnvelope": "{\"actionIndex\":0,\"agentId\":\"support-sender\",\"decayPolicy\":{\"mode\":\"BOTH\"},\"domain\":{\"domainHash\":\"0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae\",\"domainId\":\"support-ops\"},\"limits\":{\"enforcement\":\"external\",\"maxUses\":1},\"operation\":\"send-message\",\"resources\":[\"channel:support\",\"thread:customer-123\"],\"timeWindow\":{\"notAfter\":1798761599000,\"notBefore\":1786924800000},\"type\":\"agentenvelope.actionEnvelope\",\"version\":1}",
+    "actionEnvelopeHash": "0xd98fac4216789985f8846680f5331ab904a0a1544f910f2d7614ab1c40db7ea2",
+    "agentAddress": "0x9a1bb863cd7c32dbd916b8e3f9ba857558e68e21",
+    "actionSeedHex": "2be7f5919175e02c2c00b03252c5c05fd35dac7b0ca46b918d189b6a0a9d399f",
+    "payload": {
+      "action": "send-message",
+      "bodyHash": "0xabc123",
+      "threadId": "customer-123"
+    },
+    "signature": "0xdc9cea6fe60c962d966fe4a4b439c8e94fd8a1dd7f378c660a2a8bd7e9ff3746576d1a1940790190ac1db3b2edc965bc3ed6238ba7abd5050f928b2c1a3979701c",
+    "recoveredAddress": "0x9a1bb863cd7c32dbd916b8e3f9ba857558e68e21"
+  },
+  "mintDelegation": {
+    "botAddress": "0x32ae13baaa05e54ef7861b1eb63eaa0a57dc330a",
+    "mintMaterialHex": "d953bd15cbcb2f04eeb43da0ad45ac88c7a884605638c34f3ccc57f191587d95",
+    "delegate": {
+      "type": "agentenvelope.mintDelegate",
+      "version": 1,
+      "delegateId": "ae-delegate-ec331812078ff76d",
+      "issuerAddress": "0x92f1aa3649a528b4ca2e10f726bd66d6fad720ec",
+      "domainHash": "0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae",
+      "allowedOperations": [
+        "send-message"
+      ],
+      "allowedResources": [
+        "thread:*",
+        "channel:support"
+      ],
+      "botPolicy": "address-set",
+      "allowedBotAddresses": [
+        "0x32ae13baaa05e54ef7861b1eb63eaa0a57dc330a"
+      ],
+      "actionIndexPolicy": {
+        "min": 0,
+        "max": 9
+      },
+      "maxMints": 3,
+      "maxUsesPerAction": 1,
+      "timeWindow": {
+        "notBefore": 1786924800000,
+        "notAfter": 1798761599000
+      },
+      "nonce": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "issuedAt": "2026-07-24T15:24:00.000Z",
+      "issuerSignature": "0x5e5717689cce3ba585fbeca6083d23ad41ecdd9335b02fb15f4e87e1ab95147f1e868bd8f583a64b8cd2067c16ab0d125332be850ac681a1e30b5319c41285611b"
+    },
+    "request": {
+      "type": "agentenvelope.mintRequest",
+      "version": 1,
+      "requestId": "ae-request-54c93687e482b480",
+      "delegateId": "ae-delegate-ec331812078ff76d",
+      "delegateHash": "0x7602634ac5b205b8af2b14f36e5eb282ac616025ad439fb44c02439b8d632e14",
+      "botAddress": "0x32ae13baaa05e54ef7861b1eb63eaa0a57dc330a",
+      "agentId": "support-sender",
+      "operation": "send-message",
+      "resources": [
+        "thread:customer-123",
+        "channel:support"
+      ],
+      "actionIndex": 1,
+      "maxUses": 1,
+      "timeWindow": {
+        "notBefore": 1786980600000,
+        "notAfter": 1786982400000
+      },
+      "nonce": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "requestedAt": "2026-07-24T15:25:00.000Z",
+      "botSignature": "0xf9f0aeed831b493cd6426b1e688cadfe14ae1c340a3b7ed2d5da52c996497cd601c06e3731fb994521fbbc9fd38e4f5304dc1ac953e9b91ffe9ca7ecf11e7f931b"
+    },
+    "remoteCapability": {
+      "type": "agentenvelope.agentCapability",
+      "version": 1,
+      "custodyMode": "remote-mint-delegate",
+      "delegateId": "ae-delegate-ec331812078ff76d",
+      "requestId": "ae-request-54c93687e482b480",
+      "agentAddress": "0x85daa92a4d40ee98e3690db5be5dbe3ba05427e5",
+      "actionSeedHex": "540a7c71a847b272e371f793171aa8a73e375a0ef85219c5eae677c4e6600e28"
+    },
+    "remotePayload": {
+      "action": "send-message",
+      "bodyHash": "0xdef456",
+      "threadId": "customer-123"
+    },
+    "remoteSignature": "0xd545d29c104796ee0c01258425bf2ec262345171406cce25e831de81d58524e45dce02dc3b544455c3370e1aa3c2d97c5bc18cdcbe584548c5894b4a338ba33f1b",
+    "remoteRecoveredAddress": "0x85daa92a4d40ee98e3690db5be5dbe3ba05427e5"
+  }
+}

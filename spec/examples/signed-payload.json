@@ -1,0 +1,10 @@
+{
+  "payload": {
+    "action": "send-message",
+    "bodyHash": "0xabc123",
+    "threadId": "customer-123"
+  },
+  "signature": "0xdc9cea6fe60c962d966fe4a4b439c8e94fd8a1dd7f378c660a2a8bd7e9ff3746576d1a1940790190ac1db3b2edc965bc3ed6238ba7abd5050f928b2c1a3979701c",
+  "expectedAddress": "0x9a1bb863cd7c32dbd916b8e3f9ba857558e68e21",
+  "actionEnvelopeHash": "0xd98fac4216789985f8846680f5331ab904a0a1544f910f2d7614ab1c40db7ea2"
+}

@@ -1,0 +1,26 @@
+{
+  "type": "agentenvelope.actionEnvelope",
+  "version": 1,
+  "agentId": "support-sender",
+  "domain": {
+    "domainId": "support-ops",
+    "domainHash": "0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae"
+  },
+  "actionIndex": 0,
+  "operation": "send-message",
+  "resources": [
+    "channel:support",
+    "thread:customer-123"
+  ],
+  "timeWindow": {
+    "notBefore": 1786924800000,
+    "notAfter": 1798761599000
+  },
+  "decayPolicy": {
+    "mode": "BOTH"
+  },
+  "limits": {
+    "maxUses": 1,
+    "enforcement": "external"
+  }
+}

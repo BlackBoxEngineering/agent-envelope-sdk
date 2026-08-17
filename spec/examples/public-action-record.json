@@ -1,0 +1,55 @@
+{
+  "type": "agentenvelope.publicActionRecord",
+  "version": 1,
+  "recordId": "ae-action-050c3002fda207f4fa71",
+  "ownerUserId": "user-v1-vector",
+  "custodyMode": "sovereign-browser",
+  "verifierProfile": "domain-action-envelope",
+  "status": "active",
+  "createdAt": "2026-07-24T15:23:00.000Z",
+  "agentId": "support-sender",
+  "agentAddress": "0x9a1bb863cd7c32dbd916b8e3f9ba857558e68e21",
+  "domain": {
+    "domainInfo": {
+      "type": "agentenvelope.domainInfo",
+      "version": 1,
+      "namespace": "agentenvelope",
+      "domainId": "support-ops",
+      "kind": "communication"
+    },
+    "canonicalDomainInfo": "{\"domainId\":\"support-ops\",\"kind\":\"communication\",\"namespace\":\"agentenvelope\",\"type\":\"agentenvelope.domainInfo\",\"version\":1}",
+    "domainHash": "0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae",
+    "domainAddress": "0x92f1aa3649a528b4ca2e10f726bd66d6fad720ec",
+    "domainFingerprint": "ae-domain-9c416a4bf2c02a5f",
+    "createdAt": "2026-07-24T15:21:54.000Z"
+  },
+  "actionEnvelope": {
+    "type": "agentenvelope.actionEnvelope",
+    "version": 1,
+    "agentId": "support-sender",
+    "domain": {
+      "domainId": "support-ops",
+      "domainHash": "0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae"
+    },
+    "actionIndex": 0,
+    "operation": "send-message",
+    "resources": [
+      "channel:support",
+      "thread:customer-123"
+    ],
+    "timeWindow": {
+      "notBefore": 1786924800000,
+      "notAfter": 1798761599000
+    },
+    "decayPolicy": {
+      "mode": "BOTH"
+    },
+    "limits": {
+      "maxUses": 1,
+      "enforcement": "external"
+    }
+  },
+  "canonicalActionEnvelope": "{\"actionIndex\":0,\"agentId\":\"support-sender\",\"decayPolicy\":{\"mode\":\"BOTH\"},\"domain\":{\"domainHash\":\"0x3fa9eeed97ac81422a6838aa6cd81adb4abcf3fd42cdd8e0f234889997166dae\",\"domainId\":\"support-ops\"},\"limits\":{\"enforcement\":\"external\",\"maxUses\":1},\"operation\":\"send-message\",\"resources\":[\"channel:support\",\"thread:customer-123\"],\"timeWindow\":{\"notAfter\":1798761599000,\"notBefore\":1786924800000},\"type\":\"agentenvelope.actionEnvelope\",\"version\":1}",
+  "actionEnvelopeHash": "0xd98fac4216789985f8846680f5331ab904a0a1544f910f2d7614ab1c40db7ea2",
+  "expiry": "2026-12-31T23:59:59.000Z"
+}
