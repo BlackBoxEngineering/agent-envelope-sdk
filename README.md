@@ -58,6 +58,10 @@ Requires Node.js 18 or later.
 
 ## SDK Usage
 
+The root module is for worker, verifier, and bot-side code that does not hold the vault root.
+Root-holding orchestrators and console-style apps use `agent-envelope-sdk/avatar` for domain and
+action capability derivation.
+
 ### Worker side — sign a payload
 
 ```js
