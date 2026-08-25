@@ -45,15 +45,12 @@ function _normalizeIdentifier(value, label) {
 }
 
 function _normalizeResources(value) {
-    const entries = (Array.isArray(value) ? value : value.split(','))
-        .map((r) => r.trim().toLowerCase())
-        .filter(Boolean);
+    const entries = (Array.isArray(value) ? value : value.split(',')).map((r) => r.trim().toLowerCase()).filter(Boolean);
     return [...new Set(entries)].sort();
 }
 
 function _deriveDomainSeed(identityRoot, domainInfo) {
-    if (!(identityRoot instanceof Uint8Array) || identityRoot.length !== 32)
-        throw new Error('identityRoot must be a 32-byte Uint8Array');
+    if (!(identityRoot instanceof Uint8Array) || identityRoot.length !== 32) throw new Error('identityRoot must be a 32-byte Uint8Array');
     return _hkdf(identityRoot, _utf8(canonicalJSON({ purpose: 'domain', domainInfo })));
 }
 
@@ -120,18 +117,12 @@ export function buildActionEnvelope(domain, input) {
     const resources = _normalizeResources(input.resources);
     const { actionIndex, decayMode: mode, maxUses, notBefore, notAfter } = input;
 
-    if (!Number.isInteger(actionIndex) || actionIndex < 0)
-        throw new Error('Action index must be a non-negative integer');
-    if (resources.length === 0)
-        throw new Error('At least one resource is required');
-    if ((mode === 'TIME' || mode === 'BOTH') && !Number.isFinite(notBefore) && !Number.isFinite(notAfter))
-        throw new Error('Time decay requires a start or end time');
-    if (notBefore !== null && notAfter !== null && notAfter <= notBefore)
-        throw new Error('End time must be after start time');
-    if ((mode === 'ACTION' || mode === 'BOTH') && (!Number.isInteger(maxUses) || maxUses === null || maxUses < 1))
-        throw new Error('Action decay requires a positive maximum use count');
-    if ((mode === 'NONE' || mode === 'TIME') && maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1))
-        throw new Error('Maximum uses must be a positive integer or null');
+    if (!Number.isInteger(actionIndex) || actionIndex < 0) throw new Error('Action index must be a non-negative integer');
+    if (resources.length === 0) throw new Error('At least one resource is required');
+    if ((mode === 'TIME' || mode === 'BOTH') && !Number.isFinite(notBefore) && !Number.isFinite(notAfter)) throw new Error('Time decay requires a start or end time');
+    if (notBefore !== null && notAfter !== null && notAfter <= notBefore) throw new Error('End time must be after start time');
+    if ((mode === 'ACTION' || mode === 'BOTH') && (!Number.isInteger(maxUses) || maxUses === null || maxUses < 1)) throw new Error('Action decay requires a positive maximum use count');
+    if ((mode === 'NONE' || mode === 'TIME') && maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1)) throw new Error('Maximum uses must be a positive integer or null');
 
     return {
         type: 'agentenvelope.actionEnvelope',
@@ -161,13 +152,11 @@ export function buildActionEnvelope(domain, input) {
  * @returns {object}   AgentActionCapability — contains actionSeedHex, treat as a private key.
  */
 export function deriveAgentActionCapability(identityRoot, domain, envelope, now = new Date()) {
-    if (envelope.domain.domainId !== domain.domainInfo.domainId || envelope.domain.domainHash !== domain.domainHash)
-        throw new Error('Action envelope does not match the selected domain');
+    if (envelope.domain.domainId !== domain.domainInfo.domainId || envelope.domain.domainHash !== domain.domainHash) throw new Error('Action envelope does not match the selected domain');
 
     const domainSeed = _deriveDomainSeed(identityRoot, domain.domainInfo);
     try {
-        if (_seedAddress(domainSeed) !== domain.domainAddress)
-            throw new Error('Selected domain does not belong to this vault');
+        if (_seedAddress(domainSeed) !== domain.domainAddress) throw new Error('Selected domain does not belong to this vault');
 
         const canonicalActionEnvelope = canonicalJSON(envelope);
         const actionEnvelopeHash = _sha256hex(_utf8(canonicalActionEnvelope));
@@ -202,7 +191,7 @@ export function deriveAgentActionCapability(identityRoot, domain, envelope, now 
  * @param {object} options     { ownerUserId: string, createdAt?: Date }
  * @returns {object}  SovereignPublicActionRecord
  */
-export function createPublicActionRecord(capability, { ownerUserId, createdAt } = {}) {
+export function createPublicActionRecord(capability, { ownerUserId, createdAt, legitimacyRef } = {}) {
     if (!ownerUserId || typeof ownerUserId !== 'string') throw new Error('ownerUserId is required');
     const ts = (createdAt ?? new Date()).toISOString();
     const recordId = `ae-action-${contentHash({
@@ -225,6 +214,7 @@ export function createPublicActionRecord(capability, { ownerUserId, createdAt } 
         actionEnvelope: capability.actionEnvelope,
         canonicalActionEnvelope: capability.canonicalActionEnvelope,
         actionEnvelopeHash: capability.actionEnvelopeHash,
+        ...(legitimacyRef ? { legitimacyRef } : {}),
         expiry: _actionEnvelopeExpiry(capability.actionEnvelope),
     };
 }

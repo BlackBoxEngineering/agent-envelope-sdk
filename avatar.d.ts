@@ -1,4 +1,4 @@
-import type { DecayMode } from './index.d.ts';
+import type { DecayMode, LegitimacyRef } from './index.d.ts';
 
 export interface DomainInfoInput {
     namespace: string;
@@ -65,6 +65,7 @@ export interface AgentActionCapability {
 export interface PublicActionRecordOptions {
     ownerUserId: string;
     createdAt?: Date;
+    legitimacyRef?: LegitimacyRef;
 }
 
 export interface SovereignPublicActionRecord {
@@ -82,6 +83,7 @@ export interface SovereignPublicActionRecord {
     actionEnvelope: ActionEnvelope;
     canonicalActionEnvelope: string;
     actionEnvelopeHash: string;
+    legitimacyRef?: LegitimacyRef;
     expiry: string | null;
 }
 
@@ -112,21 +114,13 @@ export function buildActionEnvelope(domain: DomainKeySummary, input: ActionEnvel
  *
  * @param identityRoot  32-byte vault root — keep secret, zero after use.
  */
-export function deriveAgentActionCapability(
-    identityRoot: Uint8Array,
-    domain: DomainKeySummary,
-    envelope: ActionEnvelope,
-    now?: Date,
-): AgentActionCapability;
+export function deriveAgentActionCapability(identityRoot: Uint8Array, domain: DomainKeySummary, envelope: ActionEnvelope, now?: Date): AgentActionCapability;
 
 /**
  * Build a metadata-only public action record from a capability.
  * Contains no actionSeedHex — safe to store, publish, and hand to verifiers.
  */
-export function createPublicActionRecord(
-    capability: AgentActionCapability,
-    options: PublicActionRecordOptions,
-): SovereignPublicActionRecord;
+export function createPublicActionRecord(capability: AgentActionCapability, options: PublicActionRecordOptions): SovereignPublicActionRecord;
 
 /**
  * Serialize an AgentActionCapability to a pretty-printed JSON string.

@@ -12,6 +12,52 @@ export interface ActionIndexPolicy {
     max: number;
 }
 
+export type LegitimacyStatus = 'legitimate' | 'suspended' | 'invalid' | 'closed' | 'compromised';
+export type LegitimacyScopeKind = 'domain' | 'delegate' | 'record' | 'agent';
+
+export interface LegitimacyRef {
+    legitimacyId: string;
+    stateVersion?: number;
+    stateHash?: string;
+    policyId?: string;
+    required?: boolean;
+}
+
+export interface LegitimacyState {
+    type: 'agentenvelope.legitimacyState';
+    version: 1;
+    legitimacyId: string;
+    ownerUserId: string;
+    status: LegitimacyStatus;
+    stateVersion: number;
+    stateHash: string;
+    reasonCode?: string;
+    scope: { kind: LegitimacyScopeKind; id: string; domainHash?: string };
+    policyRef: { policyId: string; policyVersion: number; policyHash: string };
+    assumptions: Array<{ assumptionId: string; assumptionVersion: number; assumptionHash: string; label?: string }>;
+    evidence: Array<{ kind: string; uri?: string; sha256?: string; label?: string; metadata?: Record<string, unknown> }>;
+    createdAt: string;
+    updatedAt: string;
+    expiresAt?: string | null;
+    closedAt?: string | null;
+    compromisedAt?: string | null;
+}
+
+export interface LegitimacyEvent {
+    type: 'agentenvelope.legitimacyEvent';
+    version: 1;
+    eventId: string;
+    eventType: 'jurisdiction.change' | 'evidence.invalidation' | 'objective.closure' | 'endpoint.compromised' | 'policy.custom';
+    legitimacyId: string;
+    occurredAt: string;
+    effectiveAt: string;
+    scope: LegitimacyState['scope'];
+    patch: Record<string, unknown>;
+    evidence: LegitimacyState['evidence'];
+    producer: { authorityId: string; keyId: string };
+    signature: { alg: 'secp256k1-keccak256'; signerAddress: string; value: string };
+}
+
 // Opaque record received from the console or API — workers verify against it, never construct it.
 export interface PublicActionRecord {
     type: 'agentenvelope.publicActionRecord';
@@ -23,6 +69,7 @@ export interface PublicActionRecord {
     domain: { domainId: string; domainHash: string };
     actionEnvelope: { actionIndex: number; [key: string]: unknown };
     actionEnvelopeHash: string;
+    legitimacyRef?: LegitimacyRef;
     expiry: string | null;
     [key: string]: unknown;
 }
@@ -31,6 +78,7 @@ export interface MintDelegate {
     type: 'agentenvelope.mintDelegate';
     version: 1;
     delegateId: string;
+    legitimacyRef?: LegitimacyRef;
     issuerAddress: string;
     avatarAddress?: string;
     domainHash: string;
@@ -50,6 +98,7 @@ export interface MintDelegate {
 export interface MintDelegateInput {
     avatarAddress?: string;
     domainHash: string;
+    legitimacyRef?: LegitimacyRef;
     allowedOperations: string[];
     allowedResources: string[];
     botPolicy: 'any-signed-bot' | 'address-set';
@@ -137,6 +186,7 @@ export function buildMintDelegate(domainSeed: Uint8Array, input: MintDelegateInp
 export function verifyMintDelegate(delegate: MintDelegate, expectedIssuerAddress: string): MintVerifyResult;
 export function buildMintRequest(botSeed: Uint8Array, delegate: MintDelegate, input: MintRequestInput): MintRequest;
 export function verifyMintRequest(request: MintRequest, delegate: MintDelegate): MintVerifyResult;
+export function isAuthorityLegitimate(state: LegitimacyState): MintVerifyResult;
 
 // Remote-mint capability derived locally by the bot after the hosted verifier accepts its request.
 export interface RemoteMintCapability {

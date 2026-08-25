@@ -8,13 +8,20 @@ import { DECAY_MODES } from './constants.js';
 const encoder = new TextEncoder();
 const SECP256K1_N = secp256k1.CURVE.n;
 
-// Internal byte prefixes — not named constants, not exported.
+// Internal byte prefixes.
+// Protocol domain separators used before hashing/signing.
+// _a: action message
+// _b: mint delegate
+// _c: mint request
+// _d: receipt attestation
+// _s: HKDF salt/context
 const _a = encoder.encode('\x19AgentEnvelope Signed Message:\n');
 const _b = encoder.encode('\x19AgentEnvelope Mint Delegate:\n');
 const _c = encoder.encode('\x19AgentEnvelope Mint Request:\n');
 const _d = encoder.encode('\x19AgentEnvelope Attestation:\n');
 const _s = encoder.encode('agentenvelope-v1');
 
+// Concatenate a domain separator with an already-encoded message.
 function _prefix(pre, msg) {
     const b = new Uint8Array(pre.length + msg.length);
     b.set(pre);
@@ -22,10 +29,12 @@ function _prefix(pre, msg) {
     return b;
 }
 
+// Hash a message with the AgentEnvelope prefix for signing.
 function _msgHash(message) {
     return keccak_256(_prefix(_a, encoder.encode(canonicalJSON(message))));
 }
 
+// Derive a valid secp256k1 private key from a 32-byte seed using HKDF.
 function _seedToKey(seed) {
     if (!(seed instanceof Uint8Array) || seed.length !== 32) throw new Error('seed must be a 32-byte Uint8Array');
     let key = seed;
@@ -36,11 +45,20 @@ function _seedToKey(seed) {
     throw new Error('could not derive valid key');
 }
 
+// Derive the Ethereum address for a given 32-byte seed.
 function _seedAddr(seed) {
     const pub = secp256k1.getPublicKey(_seedToKey(seed), false);
     return `0x${bytesToHex(keccak_256(pub.slice(1)).slice(-20))}`;
 }
 
+/**
+ * Return deterministic JSON for hashing/signing.
+ * Object keys are sorted; array order is preserved because arrays are ordered
+ * data. Normalize arrays before calling this if their order should not matter.
+ *
+ * @param {unknown} value  Value to encode deterministically.
+ * @returns {string}      Canonical JSON string.
+ */
 export function canonicalJSON(value) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value);
     return `{${Object.keys(value)
@@ -49,29 +67,63 @@ export function canonicalJSON(value) {
         .join(',')}}`;
 }
 
+/**
+ * Hash raw/canonical content with SHA-256 for stable identifiers/fingerprints.
+ *
+ * @param {unknown} value  String or JSON-compatible value to hash.
+ * @returns {string}      0x-prefixed SHA-256 content hash.
+ */
 export function contentHash(value) {
     const input = typeof value === 'string' ? value : canonicalJSON(value);
     return `0x${bytesToHex(sha256(encoder.encode(input)))}`;
 }
 
+/**
+ * Convert a hex string to a Uint8Array of bytes. Accepts an optional 0x prefix.
+ *
+ * @param {string} value  Even-length hex string.
+ * @returns {Uint8Array} Bytes decoded from the hex string.
+ */
 export function hexToBytes(value) {
     const hex = value.startsWith('0x') ? value.slice(2) : value;
     if (!/^[a-fA-F0-9]*$/.test(hex) || hex.length % 2 !== 0) throw new Error('hex value must contain an even number of hex characters');
     return Uint8Array.from({ length: hex.length / 2 }, (_, i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16));
 }
 
+/**
+ * Derive the Ethereum address for a given 32-byte seed.
+ *
+ * @param {Uint8Array} seed  32-byte seed material.
+ * @returns {string}        0x-prefixed Ethereum-style address.
+ */
 export function seedAddress(seed) {
     return _seedAddr(seed);
 }
 
+/**
+ * Sign a message with a private action seed.
+ * Returns a 65-byte r+s+recovery signature.
+ *
+ * @param {Uint8Array} actionSeed  Private action seed; treat as signing material.
+ * @param {unknown}    message     JSON-compatible action payload.
+ * @returns {string}               0x-prefixed 65-byte recoverable signature.
+ */
 export function signAction(actionSeed, message) {
     const sig = secp256k1.sign(_msgHash(message), _seedToKey(actionSeed));
     return `0x${sig.r.toString(16).padStart(64, '0')}${sig.s.toString(16).padStart(64, '0')}${(sig.recovery + 27).toString(16).padStart(2, '0')}`;
 }
 
+/**
+ * Recover the Ethereum address that signed a message with a given signature.
+ *
+ * @param {unknown} message    JSON-compatible action payload.
+ * @param {string}  signature  0x-prefixed 65-byte recoverable signature.
+ * @returns {string}           0x-prefixed recovered signer address.
+ */
 export function recoverActionAddress(message, signature) {
     const hex = signature.startsWith('0x') ? signature.slice(2) : signature;
     if (!/^[a-fA-F0-9]{130}$/.test(hex)) throw new Error('signature must be 65 bytes');
+    // Signatures store Ethereum-style recovery bytes 27/28; noble expects 0/1.
     const recovery = Number.parseInt(hex.slice(128, 130), 16) - 27;
     if (recovery !== 0 && recovery !== 1) throw new Error('signature recovery byte must be 27 or 28');
     const sig = secp256k1.Signature.fromCompact(hex.slice(0, 128)).addRecoveryBit(recovery);
@@ -79,6 +131,15 @@ export function recoverActionAddress(message, signature) {
     return `0x${bytesToHex(keccak_256(pub.slice(1)).slice(-20))}`;
 }
 
+/**
+ * Verify an action signature and return a friendly verification report.
+ *
+ * @param {object} input                 Verification input.
+ * @param {unknown} input.message        JSON-compatible action payload.
+ * @param {string} input.signature       0x-prefixed 65-byte recoverable signature.
+ * @param {string} input.expectedAddress Address the signature must recover to.
+ * @returns {object}                     Verification result.
+ */
 export function verifyAction({ message, signature, expectedAddress }) {
     try {
         const recovered = recoverActionAddress(message, signature);
@@ -89,14 +150,39 @@ export function verifyAction({ message, signature, expectedAddress }) {
     }
 }
 
+/**
+ * Check whether an authority is currently allowed by a legitimacy state object.
+ *
+ * @param {object} state  Legitimacy state from governance.
+ * @returns {object}     Validity result with optional reason.
+ */
+export function isAuthorityLegitimate(state) {
+    if (!state || typeof state !== 'object') return { valid: false, reason: 'legitimacy state is required' };
+    if (state.type !== 'agentenvelope.legitimacyState') return { valid: false, reason: 'legitimacy state type is invalid' };
+    if (state.version !== 1) return { valid: false, reason: 'legitimacy state version is invalid' };
+    if (state.status !== 'legitimate') return { valid: false, reason: `authority legitimacy is ${state.status}` };
+    if (state.expiresAt && Date.parse(state.expiresAt) <= Date.now()) return { valid: false, reason: 'legitimacy policy expired' };
+    return { valid: true };
+}
+
 // --- Attestations -----------------------------------------------------------
-// A receipt attestation is AgentEnvelope's own signed statement about a fact the
-// hosted verifier computed. Verifiers should pin the published attester address
-// out-of-band; the address inside a receipt is a convenience, not a root of trust.
+// A receipt attestation is a hosted verifier's signed statement about a fact it
+// computed. The SDK can verify receipt self-consistency locally, but trust needs
+// a pinned attester address from outside the receipt, such as published docs,
+// configuration, or another trusted governance channel.
 function _receiptHash(receiptBody) {
     return keccak_256(_prefix(_d, encoder.encode(canonicalJSON(receiptBody))));
 }
 
+/**
+ * Sign a hosted/governance verifier receipt.
+ * This signs receipt attestations, not normal action payloads; action
+ * capabilities use signAction instead.
+ *
+ * @param {Uint8Array} attesterSeed Private hosted attester seed.
+ * @param {object}     receiptBody  Receipt body to attest; existing attestation is ignored.
+ * @returns {object}                Receipt attestation object.
+ */
 export function signReceipt(attesterSeed, receiptBody) {
     const { attestation: _drop, ...body } = receiptBody ?? {};
     const sig = secp256k1.sign(_receiptHash(body), _seedToKey(attesterSeed));
@@ -104,6 +190,15 @@ export function signReceipt(attesterSeed, receiptBody) {
     return { attesterAddress: _seedAddr(attesterSeed), alg: 'secp256k1-keccak256', signature };
 }
 
+/**
+ * Verify a hosted/governance receipt locally.
+ * Passing expectedAttesterAddress pins trust to a known attester instead of
+ * only checking that the receipt is self-consistent.
+ *
+ * @param {object} receipt                   Receipt body containing an attestation.
+ * @param {string} [expectedAttesterAddress] Pinned trusted attester address.
+ * @returns {object}                         Verification result.
+ */
 export function verifyReceipt(receipt, expectedAttesterAddress) {
     try {
         if (!receipt || typeof receipt !== 'object') return { valid: false, reason: 'receipt must be an object' };
@@ -126,10 +221,20 @@ export function verifyReceipt(receipt, expectedAttesterAddress) {
     }
 }
 
+/**
+ * Build a signed mint delegate from domain authority material.
+ * The delegate says which bots may request capabilities, for which operations,
+ * resources, indexes, and limits. Stateful checks such as maxMints and nonce
+ * replay are enforced by the mint verifier/governance layer, not this builder.
+ *
+ * @param {Uint8Array} domainSeed  Private domain seed; zeroed after use.
+ * @param {object}     input       Mint delegate policy input.
+ * @returns {object}               Signed mint delegate.
+ */
 export function buildMintDelegate(domainSeed, input) {
     if (!(domainSeed instanceof Uint8Array) || domainSeed.length !== 32) throw new Error('domainSeed must be a 32-byte Uint8Array');
     const issuerAddress = _seedAddr(domainSeed);
-    const { avatarAddress, domainHash, allowedOperations, allowedResources, botPolicy, allowedBotAddresses, actionIndexPolicy, maxMints, maxUsesPerAction, timeWindow, nonce, issuedAt } = input;
+    const { avatarAddress, domainHash, legitimacyRef, allowedOperations, allowedResources, botPolicy, allowedBotAddresses, actionIndexPolicy, maxMints, maxUsesPerAction, timeWindow, nonce, issuedAt } = input;
     if (avatarAddress !== undefined && !/^0x[a-fA-F0-9]{40}$/.test(avatarAddress)) throw new Error('avatarAddress must be a 0x-prefixed 20-byte hex address');
     if (botPolicy === 'address-set') {
         if (!Array.isArray(allowedBotAddresses) || allowedBotAddresses.length === 0) throw new Error('address-set policy requires at least one allowedBotAddresses entry');
@@ -138,7 +243,7 @@ export function buildMintDelegate(domainSeed, input) {
         }
     }
     const delegateId = `ae-delegate-${contentHash({ issuerAddress, domainHash, nonce }).slice(2, 18)}`;
-    const delegateBody = { type: 'agentenvelope.mintDelegate', version: 1, delegateId, issuerAddress, ...(avatarAddress !== undefined ? { avatarAddress } : {}), domainHash, allowedOperations, allowedResources, botPolicy, ...(botPolicy === 'address-set' ? { allowedBotAddresses } : {}), actionIndexPolicy, maxMints, maxUsesPerAction, timeWindow, nonce, issuedAt };
+    const delegateBody = { type: 'agentenvelope.mintDelegate', version: 1, delegateId, ...(legitimacyRef ? { legitimacyRef } : {}), issuerAddress, ...(avatarAddress !== undefined ? { avatarAddress } : {}), domainHash, allowedOperations, allowedResources, botPolicy, ...(botPolicy === 'address-set' ? { allowedBotAddresses } : {}), actionIndexPolicy, maxMints, maxUsesPerAction, timeWindow, nonce, issuedAt };
     try {
         const hash = keccak_256(_prefix(_b, encoder.encode(canonicalJSON(delegateBody))));
         const sig = secp256k1.sign(hash, _seedToKey(domainSeed));
@@ -149,6 +254,16 @@ export function buildMintDelegate(domainSeed, input) {
     }
 }
 
+/**
+ * Verify a mint delegate without consulting external state.
+ * This checks delegate shape and issuer signature against expectedIssuerAddress.
+ * Revocation, maxMints exhaustion, nonce replay, and live legitimacy state need
+ * external/governed state.
+ *
+ * @param {object} delegate                 Signed mint delegate.
+ * @param {string} expectedIssuerAddress    Pinned issuer/domain address.
+ * @returns {object}                        Validity result with optional reason.
+ */
 export function verifyMintDelegate(delegate, expectedIssuerAddress) {
     try {
         const { issuerSignature, ...delegateBody } = delegate;
@@ -164,6 +279,11 @@ export function verifyMintDelegate(delegate, expectedIssuerAddress) {
         if (!Number.isInteger(delegateBody.maxMints) || delegateBody.maxMints < 1) return { valid: false, reason: 'maxMints is invalid' };
         if (!Number.isInteger(delegateBody.maxUsesPerAction) || delegateBody.maxUsesPerAction < 1) return { valid: false, reason: 'maxUsesPerAction is invalid' };
         if (!/^0x[a-fA-F0-9]{64}$/.test(delegateBody.nonce ?? '')) return { valid: false, reason: 'nonce is invalid' };
+        if (delegateBody.legitimacyRef !== undefined) {
+            if (!delegateBody.legitimacyRef || typeof delegateBody.legitimacyRef.legitimacyId !== 'string') return { valid: false, reason: 'legitimacyRef is invalid' };
+            if (delegateBody.legitimacyRef.stateVersion !== undefined && (!Number.isInteger(delegateBody.legitimacyRef.stateVersion) || delegateBody.legitimacyRef.stateVersion < 1)) return { valid: false, reason: 'legitimacyRef stateVersion is invalid' };
+            if (delegateBody.legitimacyRef.stateHash !== undefined && !/^0x[a-fA-F0-9]{64}$/.test(delegateBody.legitimacyRef.stateHash)) return { valid: false, reason: 'legitimacyRef stateHash is invalid' };
+        }
         if (typeof delegateBody.issuedAt !== 'string') return { valid: false, reason: 'issuedAt is invalid' };
         if (!/^0x[a-fA-F0-9]{130}$/.test(issuerSignature ?? '')) return { valid: false, reason: 'issuerSignature is invalid' };
         const hash = keccak_256(_prefix(_b, encoder.encode(canonicalJSON(delegateBody))));
@@ -179,6 +299,17 @@ export function verifyMintDelegate(delegate, expectedIssuerAddress) {
     }
 }
 
+/**
+ * Build a bot-side signed request for hosted/remote minting.
+ * This binds a bot address to one requested capability under a specific
+ * delegate. Allow/deny decisions and replay/use counters are handled by the
+ * mint verifier/governance layer.
+ *
+ * @param {Uint8Array} botSeed  Private bot seed; zeroed after use.
+ * @param {object}     delegate Signed mint delegate being requested against.
+ * @param {object}     input    Requested capability fields.
+ * @returns {object}            Signed mint request.
+ */
 export function buildMintRequest(botSeed, delegate, input) {
     if (!(botSeed instanceof Uint8Array) || botSeed.length !== 32) throw new Error('botSeed must be a 32-byte Uint8Array');
     const botAddress = _seedAddr(botSeed);
@@ -197,6 +328,16 @@ export function buildMintRequest(botSeed, delegate, input) {
     }
 }
 
+/**
+ * Verify a mint request without consulting external state.
+ * This checks delegate issuer signature, bot signature, bot policy,
+ * operation/resource bounds, indexes, maxUses, and time-window containment.
+ * Nonce replay and maxMints counters need governed state.
+ *
+ * @param {object} request  Signed mint request.
+ * @param {object} delegate Signed mint delegate the request targets.
+ * @returns {object}        Validity result with optional reason.
+ */
 export function verifyMintRequest(request, delegate) {
     try {
         const { issuerSignature, ...delegateBody } = delegate;
@@ -242,11 +383,30 @@ export function verifyMintRequest(request, delegate) {
     }
 }
 
+/**
+ * Derive domain-scoped mint material from an identity root.
+ * This is not an action key; it is input material for deriving minted action
+ * capabilities after a delegate/request has been verified.
+ *
+ * @param {Uint8Array} identityRoot  32-byte vault root; keep secret, zero after use.
+ * @param {object}     domain        Domain summary containing domainHash.
+ * @returns {Uint8Array}             Private mint material; treat as secret.
+ */
 export function deriveMintMaterial(identityRoot, domain) {
     if (!(identityRoot instanceof Uint8Array) || identityRoot.length !== 32) throw new Error('identityRoot must be a 32-byte Uint8Array');
     return hkdf(sha256, identityRoot, _s, encoder.encode(canonicalJSON({ purpose: 'mint-material', domainHash: domain.domainHash })), 32);
 }
 
+/**
+ * Derive the private action capability after a delegate/request has been accepted.
+ * This does not authorize the mint by itself; callers should verify the delegate,
+ * request, replay state, and counters before deriving/exporting.
+ *
+ * @param {Uint8Array} mintMaterial Private mint material; zeroed after use.
+ * @param {object}     delegate     Signed mint delegate.
+ * @param {object}     request      Verified signed mint request.
+ * @returns {object}                Remote-mint action capability; contains actionSeedHex.
+ */
 export function mintActionCapability(mintMaterial, delegate, request) {
     if (!(mintMaterial instanceof Uint8Array) || mintMaterial.length !== 32) throw new Error('mintMaterial must be a 32-byte Uint8Array');
     const { issuerSignature, ...delegateBody } = delegate;
@@ -271,6 +431,20 @@ export function mintActionCapability(mintMaterial, delegate, request) {
     }
 }
 
+/**
+ * Verify a signed payload against a public action record.
+ * This checks record shape, action index, signature recovery, action envelope
+ * hash, and local time decay. ACTION/BOTH use-count decay still needs
+ * external/governed state.
+ *
+ * @param {object} record                           Public action record.
+ * @param {object} input                            Verification input.
+ * @param {unknown} input.payload                   JSON-compatible signed payload.
+ * @param {string} input.signature                  0x-prefixed 65-byte signature.
+ * @param {number} input.actionIndex                Expected action index.
+ * @param {string} [input.expectedActionEnvelopeHash] Optional pinned envelope hash.
+ * @returns {object}                                Verification report.
+ */
 export function verifyRecord(record, { payload, signature, actionIndex, expectedActionEnvelopeHash } = {}) {
     try {
         if (record?.type !== 'agentenvelope.publicActionRecord') throw new Error('public action record type is invalid');
@@ -304,6 +478,7 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
             recordId: record.recordId,
             agentId: record.agentId,
             actionEnvelopeHash: record.actionEnvelopeHash,
+            legitimacyRef: record.legitimacyRef,
             ...(expectedActionEnvelopeHash ? { expectedActionEnvelopeHash } : {}),
             checks: { recordActive, actionRegistered: actionIndexMatches, signatureWellFormed, signatureValid: sigResult.valid, addressMatchesRecord: sigResult.valid, actionEnvelopeHashMatches, decayed },
             addresses: { agentAddress: record.agentAddress, ...(sigResult.recoveredAddress ? { recoveredActionAddress: sigResult.recoveredAddress } : {}) },
@@ -318,9 +493,11 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
     }
 }
 
+// Local decay check. NONE and ACTION do not fail locally because ACTION depends
+// on externally tracked use counts; TIME and BOTH can fail on time windows here.
 function _checkDecay(envelope) {
     const mode = envelope.decayPolicy?.mode;
-    if (mode === 'NONE' || mode === 'ACTION') return { valid: true };
+    if (mode === DECAY_MODES.NONE || mode === DECAY_MODES.ACTION) return { valid: true };
     const now = Date.now();
     const { notBefore, notAfter } = envelope.timeWindow ?? {};
     if (notBefore != null && now < notBefore) return { valid: false, reason: 'not yet valid' };
