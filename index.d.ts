@@ -120,6 +120,7 @@ export interface MintRequestInput {
     timeWindow: TimeWindow;
     nonce: string;
     requestedAt: string;
+    legitimacyId?: string;
 }
 
 export interface MintRequest {
@@ -137,6 +138,7 @@ export interface MintRequest {
     timeWindow: TimeWindow;
     nonce: string;
     requestedAt: string;
+    legitimacyId?: string;
     botSignature: string;
 }
 

@@ -417,6 +417,7 @@ interface MintRequest {
   timeWindow: { notBefore: number | null; notAfter: number | null }
   nonce: string
   requestedAt: string
+  legitimacyId?: string
   botSignature: string
 }
 ```
@@ -435,6 +436,10 @@ SHA-256(canonicalJSON(delegate body without issuerSignature))
 
 `botSignature` MUST sign the request body without `botSignature` using the MintRequest signing
 prefix.
+
+When `MintDelegate.legitimacyRef.required` is true, hosted governance MUST require
+`MintRequest.legitimacyId` to equal `MintDelegate.legitimacyRef.legitimacyId`, and the value is part
+of the bot-signed request body.
 
 ### Mint Request Verification
 

@@ -313,11 +313,27 @@ export function verifyMintDelegate(delegate, expectedIssuerAddress) {
 export function buildMintRequest(botSeed, delegate, input) {
     if (!(botSeed instanceof Uint8Array) || botSeed.length !== 32) throw new Error('botSeed must be a 32-byte Uint8Array');
     const botAddress = _seedAddr(botSeed);
-    const { agentId, operation, resources, actionIndex, maxUses, timeWindow, nonce, requestedAt } = input;
+    const { agentId, operation, resources, actionIndex, maxUses, timeWindow, nonce, requestedAt, legitimacyId } = input;
     const requestId = `ae-request-${contentHash({ botAddress, delegateId: delegate.delegateId, nonce }).slice(2, 18)}`;
     const { issuerSignature, ...delegateBody } = delegate;
     const delegateHash = contentHash(canonicalJSON(delegateBody));
-    const requestBody = { type: 'agentenvelope.mintRequest', version: 1, requestId, delegateId: delegate.delegateId, delegateHash, botAddress, agentId, operation, resources, actionIndex, maxUses, timeWindow, nonce, requestedAt };
+    const requestBody = {
+        type: 'agentenvelope.mintRequest',
+        version: 1,
+        requestId,
+        delegateId: delegate.delegateId,
+        delegateHash,
+        botAddress,
+        agentId,
+        operation,
+        resources,
+        actionIndex,
+        maxUses,
+        timeWindow,
+        nonce,
+        requestedAt,
+        ...(legitimacyId !== undefined ? { legitimacyId } : {}),
+    };
     try {
         const hash = keccak_256(_prefix(_c, encoder.encode(canonicalJSON(requestBody))));
         const sig = secp256k1.sign(hash, _seedToKey(botSeed));
