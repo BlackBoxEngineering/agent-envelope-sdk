@@ -22,7 +22,7 @@ This is the **substrate**, not the product. Two paths:
 
 - **Use AgentEnvelope hosted governance** — optional managed layer at
   [agentenvelope.io](https://agentenvelope.io). Adds vault management, delegate issuance,
-  public records, mint receipts, usage enforcement, audit trails.
+  public records, mint receipts, legitimacy checks, usage enforcement, audit trails.
 
 Neither path requires the other.
 
@@ -115,11 +115,47 @@ const report = await client.verifyAction({
 console.log(report.valid, report.checks);
 ```
 
-### Mint a capability via the hosted API
+### Bot side - mint a capability via the hosted API
 
 ```js
+import { buildMintRequest, hexToBytes, mintActionCapability } from 'agent-envelope-sdk';
+import { AgentEnvelopeClient } from 'agent-envelope-sdk/client';
+
+const client = new AgentEnvelopeClient({ apiKey: process.env.AE_API_KEY });
+const botSeed = hexToBytes(process.env.AE_BOT_KEY);
+const delegate = await client.getStoredDelegate(process.env.AE_DELEGATE_ID);
+
+const request = buildMintRequest(botSeed, delegate, {
+  agentId: process.env.AE_BOT_ID,
+  operation: 'send-message',
+  resources: ['thread:customer-123'],
+  actionIndex: 0,
+  maxUses: 1,
+  timeWindow: {
+    notBefore: Date.now(),
+    notAfter: Date.now() + 60 * 60 * 1000,
+  },
+  nonce: crypto.randomUUID(),
+  requestedAt: new Date().toISOString(),
+  ...(delegate.legitimacyRef?.legitimacyId
+    ? { legitimacyId: delegate.legitimacyRef.legitimacyId }
+    : {}),
+});
+
 const receipt = await client.mint({ delegate, request });
+
+const capability = mintActionCapability(
+  hexToBytes(process.env.AE_MINT_MATERIAL),
+  delegate,
+  request,
+);
 ```
+
+`legitimacyId` is optional signed context in the SDK. This keeps sovereign/offline use fully
+decentralised: local builders and verifiers do not need AgentEnvelope hosted governance. When a
+hosted delegate contains `legitimacyRef.required === true`, the hosted mint route requires the bot
+to sign the matching `legitimacyId` into the `MintRequest`; missing or wrong-scope legitimacy is
+rejected before a capability is authorised.
 
 ### Verify a hosted attestation
 
