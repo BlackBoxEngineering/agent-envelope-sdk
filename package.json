@@ -1,11 +1,14 @@
 {
     "name": "agent-envelope-sdk",
-    "version": "1.4.2",
+    "version": "1.4.5",
     "license": "Apache-2.0",
     "type": "module",
     "description": "Sovereign cryptographic primitives for delegated action authority: derive scoped capabilities, sign actions, and verify offline.",
     "main": "src/index.js",
     "types": "./index.d.ts",
+    "scripts": {
+        "test": "node --test"
+    },
     "exports": {
         ".": {
             "types": "./index.d.ts",
@@ -36,6 +39,7 @@
         "avatar.d.ts",
         "README.md",
         "spec/",
+        "tests/",
         "SECURITY.md",
         "LICENSE",
         "NOTICE"

@@ -341,10 +341,14 @@ A verifier that holds a public action record, payload, and signature MUST check:
 3. the requested `actionIndex` matches `record.actionEnvelope.actionIndex`;
 4. `canonicalActionEnvelope` equals `canonicalJSON(record.actionEnvelope)`;
 5. `actionEnvelopeHash` equals `SHA-256(canonicalActionEnvelope)`;
-6. any supplied `expectedActionEnvelopeHash` matches the record;
-7. time decay has not made the action invalid;
-8. the signature is well formed;
-9. the recovered signer address equals `record.agentAddress`.
+6. `actionEnvelopeHash`, domain hashes, and agent addresses use the v1 lowercase `0x` hex format;
+7. the record domain projection matches `record.actionEnvelope.domain.domainId` and `record.actionEnvelope.domain.domainHash`;
+8. the record domain hash equals `SHA-256(record.domain.canonicalDomainInfo)` when canonical domain info is present;
+9. the action envelope satisfies the validation rules in this document;
+10. any supplied `expectedActionEnvelopeHash` matches the record;
+11. time decay has not made the action invalid;
+12. the signature is well formed;
+13. the recovered signer address equals `record.agentAddress`.
 
 These checks are stateless except time. They do not prove that a `maxUses` slot is unspent.
 

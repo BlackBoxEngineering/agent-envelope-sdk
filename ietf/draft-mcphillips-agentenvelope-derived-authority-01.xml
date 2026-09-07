@@ -1,0 +1,976 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+     version="3"
+     category="info"
+     docName="draft-mcphillips-agentenvelope-derived-authority-01"
+     ipr="trust200902"
+     submissionType="independent"
+     xml:lang="en">
+  <front>
+    <title abbrev="AgentEnvelope Authority and Legitimacy">AgentEnvelope: Derived Authority and Legitimacy for Autonomous Systems</title>
+    <seriesInfo name="Internet-Draft" value="draft-mcphillips-agentenvelope-derived-authority-01"/>
+    <author fullname="Matthew McPhillips" initials="M." surname="McPhillips">
+      <organization>BlackBox Engineering</organization>
+      <address>
+        <email>mattmcp@blackboxengineering.co.uk</email>
+        <uri>https://agentenvelope.io</uri>
+      </address>
+    </author>
+    <date year="2026" month="August" day="31"/>
+    <area>Security</area>
+    <keyword>agent authority</keyword>
+    <keyword>autonomous systems</keyword>
+    <keyword>derived authority</keyword>
+    <keyword>legitimacy</keyword>
+    <keyword>capabilities</keyword>
+    <abstract>
+      <t>
+        AgentEnvelope defines a deterministic derived-authority model for autonomous and
+        action-performing systems. Instead of issuing bearer credentials from a central
+        authority, AgentEnvelope derives scoped action capabilities from customer-held custody
+        material and canonical action envelopes. A verifier can check an action signature against
+        a public action record without receiving roots, seeds, private keys, mint material, or
+        hosted service access.
+      </t>
+      <t>
+        This revision extends the model with legitimacy: a governance state that records whether
+        a cryptographically valid authority remains admissible under current policy, evidence,
+        time, and operating context. Legitimacy separates provenance from present-tense
+        authorization. A command can remain signed and verifiable while becoming illegitimate
+        because operating facts, policy, or evidence changed.
+      </t>
+      <t>
+        For autonomous-system deployments, derived authority and legitimacy support an IAM model
+        concerned with authority, admissibility, accountability, and audit for actors that perform
+        actions, including AI agents, workflows, bots, microservices, devices, robots, serverless
+        workers, and multi-agent systems.
+      </t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>
+        Autonomous software agents, workflow steps, backend workers, bots, devices, robots, and
+        other action-performing systems increasingly need narrowly scoped authority to act without
+        receiving long-lived shared secrets. Existing authorization systems commonly answer this
+        by issuing credentials, tokens, assertions, certificates, or signed authorization
+        containers.
+      </t>
+      <t>
+        AgentEnvelope specifies a different model: authority is derived, not issued. A
+        customer-held root deterministically derives domain authority; a canonical action envelope
+        then derives a leaf action capability. The same inputs produce the same public action
+        identity. A child capability does not reveal its parent or siblings.
+      </t>
+      <t>
+        The -00 draft specified this v1 authority substrate. This revision introduces an additive
+        v1 governance layer: legitimacy. Derived authority answers whether an actor could have
+        signed for a given action envelope. Legitimacy answers whether that action remains
+        admissible under current reality, policy, and evidence.
+      </t>
+      <t>
+        The substrate is not limited to autonomous agents. The same SDK primitives can support
+        permissioned links, timestamped media, delegated workflow actions, controlled downloads,
+        signed handoffs, device permissions, service operations, and other scoped-authority use
+        cases. Hosted governance can govern AgentEnvelope usage through records, delegates,
+        legitimacy, receipts, ledgers, and audit; it does not define or constrain every possible
+        application built with the SDK.
+      </t>
+      <t>
+        This distinction is relevant for autonomous systems. A robot may hold a signed instruction
+        to pick up a trolley at a bay. The signature may remain valid even after the trolley moves.
+        Traditional signature verification can prove that the instruction was issued and
+        unchanged; it cannot prove that execution remains safe or permitted. Legitimacy provides a
+        separate present-tense admissibility check.
+      </t>
+      <t>
+        This document describes AgentEnvelope v1 with additive legitimacy extensions. It is
+        informational and records an implemented protocol surface and a governance model. It does
+        not require any particular AI framework, transport, blockchain, hosted service, identity
+        provider, policy language, evidence source, or trust registry.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Terminology</name>
+      <t>
+        The key words "MUST", "MUST NOT", "REQUIRED", "SHOULD", "SHOULD NOT", and "MAY" in this
+        document are to be interpreted as described in BCP 14 <xref target="RFC2119"/>
+        <xref target="RFC8174"/> when, and only when, they appear in all capitals.
+      </t>
+      <dl newline="true" spacing="normal">
+        <dt>Action Envelope</dt>
+        <dd>The complete canonical permission input for one action capability.</dd>
+        <dt>Action Seed</dt>
+        <dd>Private 32-byte signing material derived for one action envelope.</dd>
+        <dt>Agent Address</dt>
+        <dd>The public address derived from an action seed.</dd>
+        <dt>Authority</dt>
+        <dd>The ability to produce a valid signature for a scoped action.</dd>
+        <dt>Capability</dt>
+        <dd>Private action authority held by a worker, bot, device, or autonomous actor.</dd>
+        <dt>Domain</dt>
+        <dd>A stable authority branch scoped to a class of work.</dd>
+        <dt>Evidence Statement</dt>
+        <dd>A signed or otherwise attributable statement about external state, policy, observation, or context used by legitimacy evaluation.</dd>
+        <dt>Executor</dt>
+        <dd>The actor attempting to perform the action.</dd>
+        <dt>Governance Evaluator</dt>
+        <dd>A distinct policy/evaluation actor or service that determines legitimacy from state, policy, and evidence.</dd>
+        <dt>Legitimacy</dt>
+        <dd>Governance admissibility for an authority under current state, policy, evidence, and time.</dd>
+        <dt>Legitimacy Event</dt>
+        <dd>A signed or attributable event that updates legitimacy state.</dd>
+        <dt>Legitimacy State</dt>
+        <dd>Versioned governance state that records status, scope, assumptions, policy, evidence, and a state hash for an authority or record.</dd>
+        <dt>Mint Delegate</dt>
+        <dd>A signed permit from domain authority that allows a bot or service to request bounded action capabilities without receiving the root or domain seed.</dd>
+        <dt>Mint Request</dt>
+        <dd>A bot-signed request for one bounded action capability under a mint delegate.</dd>
+        <dt>Public Action Record</dt>
+        <dd>Verifier-safe metadata binding an agent address to a domain projection and action envelope.</dd>
+        <dt>Sovereign Verification</dt>
+        <dd>Offline verification of a payload signature against a public action record.</dd>
+      </dl>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Design Goals</name>
+      <t>AgentEnvelope v1 is designed to:</t>
+      <ul spacing="normal">
+        <li>derive authority rather than issue bearer credentials;</li>
+        <li>keep roots, seeds, mint material, and private action material inside customer custody boundaries;</li>
+        <li>bind action authority to a complete canonical action envelope;</li>
+        <li>allow stateless signature verification from public action records;</li>
+        <li>keep hosted governance additive, never required for sovereign verification;</li>
+        <li>preserve isolation between domains, actions, and delegated mint capabilities;</li>
+        <li>separate authority from legitimacy;</li>
+        <li>preserve declared action intent across orchestration boundaries;</li>
+        <li>prevent an executor from being the sole arbiter of its own renewed legitimacy;</li>
+        <li>support verification of authority boundaries under adversarial prompt or workflow pressure;</li>
+        <li>support evidence-based governance without requiring any single evidence transport or policy engine;</li>
+        <li>provide audit-friendly receipts, records, and state transitions;</li>
+        <li>preserve the reference SDK as a general-purpose derived-authority tool usable outside hosted governance and autonomous-agent scenarios.</li>
+      </ul>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Applicability to Autonomous-System IAM</name>
+      <t>
+        The term IAM for Autonomous Systems is used descriptively in this document for deployments
+        in which autonomous actors require scoped authority, present-tense admissibility checks,
+        and auditability for actions they perform.
+      </t>
+      <t>IAM for Autonomous Systems is concerned with the following questions:</t>
+      <ul spacing="normal">
+        <li>What may this actor do?</li>
+        <li>Under which domain, operation, resource, time window, and use limit?</li>
+        <li>Which authority path produced the signer?</li>
+        <li>Is the authority still admissible under current policy and evidence?</li>
+        <li>Who evaluated that admissibility?</li>
+        <li>Which records, receipts, and events allow later verification and audit?</li>
+      </ul>
+      <t>
+        Existing IAM systems commonly center on identity, roles, sessions, issued credentials, and
+        bearer tokens. AgentEnvelope provides mechanisms for action authority: derived capability,
+        deterministic scope, public action records, legitimacy state, and verifier-safe audit.
+      </t>
+      <t>For this document, the relevant deployment pattern is:</t>
+      <sourcecode type="text"><![CDATA[
+IAM for Autonomous Systems = derived authority + legitimacy + accountability
+for actors that perform actions.
+]]></sourcecode>
+      <t>
+        This term is descriptive. AgentEnvelope does not replace identity providers, policy
+        engines, workflow engines, robotics safety systems, cloud IAM systems, link-permission
+        systems, or timestamping systems. It defines a substrate and governance boundary that
+        those systems can use when actors, objects, links, records, or autonomous systems need
+        scoped, verifiable, non-bearer authority.
+      </t>
+
+      <section numbered="true" toc="default">
+        <name>Intent and Orchestration Boundaries</name>
+        <t>
+          Autonomous-system deployments require more than actor identification. Autonomous actors
+          often express intent through prompts, plans, workflow steps, tool calls, queues, retries,
+          and delegated services. That intent can fragment as it crosses orchestration boundaries.
+        </t>
+        <t>
+          AgentEnvelope does not attempt to infer hidden intent. It binds declared action intent to
+          canonical action envelopes: operation, resources, domain, time window, action index, and
+          limits. A verifier can then test whether the resulting signature and public record match
+          the declared authority boundary.
+        </t>
+        <t>
+          Legitimacy adds a present-tense governance check over that declared intent. A system can
+          distinguish a cryptographically valid signer from an action that remains admissible under
+          current evidence, policy, and state.
+        </t>
+        <t>
+          This property is relevant under sustained adversarial pressure. A prompt, workflow, or
+          operator may try to induce an autonomous actor to exceed its role. The authority boundary
+          should hold even when the language around the actor attempts escalation, policy override,
+          data export, or unsafe correction.
+        </t>
+      </section>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Authority and Governance</name>
+      <t>AgentEnvelope separates authority from governance.</t>
+      <t>Authority is the ability to sign an action. It comes from custody material such as:</t>
+      <ul spacing="normal">
+        <li>identity roots;</li>
+        <li>domain seeds;</li>
+        <li>action seeds;</li>
+        <li>bot keys;</li>
+        <li>mint material.</li>
+      </ul>
+      <t>Governance is shared admissibility and accountability. It comes from records and state such as:</t>
+      <ul spacing="normal">
+        <li>public action records;</li>
+        <li>stored delegates;</li>
+        <li>mint receipts;</li>
+        <li>nonce ledgers;</li>
+        <li>revocation state;</li>
+        <li>legitimacy state;</li>
+        <li>evidence statements;</li>
+        <li>audit events;</li>
+        <li>verification events.</li>
+      </ul>
+      <t>The operational rule is:</t>
+      <sourcecode type="text"><![CDATA[
+Offline authority, hosted accountability.
+]]></sourcecode>
+      <t>
+        Hosted governance MAY verify, record, meter, and audit use of the SDK. It MUST NOT create
+        authority by receiving or deriving roots, seeds, mint material, action seeds, or private
+        keys. Hosted governance governs records, delegates, receipts, ledgers, legitimacy state,
+        and service usage; it does not define what all SDK users may build.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Relationship to the -00 Derived-Authority Model</name>
+      <t>This revision preserves the -00 model:</t>
+      <sourcecode type="text"><![CDATA[
+identityRoot -> domainSeed -> actionEnvelope -> actionSeed -> agentAddress
+]]></sourcecode>
+      <t>It also preserves the public projection:</t>
+      <sourcecode type="text"><![CDATA[
+domain public summary + action envelope + action envelope hash + agent address
+]]></sourcecode>
+      <t>
+        Legitimacy does not alter the v1 cryptographic derivation path and does not create a v2
+        authority tree. Instead, it adds v1 governance state adjacent to public records and mint
+        delegation for applications that need present-tense admissibility.
+      </t>
+      <t>
+        Legitimacy MUST NOT alter derived seeds, agent addresses, canonical action envelopes, or
+        the v1 authority tree. A signature MAY be valid while legitimacy is denied. A signature
+        MUST NOT be treated as legitimate solely because it is valid.
+      </t>
+      <t>
+        A public action record MAY carry a <tt>legitimacyRef</tt>. A mint delegate MAY carry a
+        <tt>legitimacyRef</tt>. A mint request MAY carry a <tt>legitimacyId</tt>. When a delegate
+        marks legitimacy as required, the mint verifier or hosted governance layer MUST require
+        the bot-signed mint request to reference the matching legitimacy state.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Legitimacy Model</name>
+      <t>Legitimacy is governance admissibility, not cryptographic authority.</t>
+      <t>Authority can remain cryptographically valid while legitimacy changes. A signature over a command can remain valid after:</t>
+      <ul spacing="normal">
+        <li>a real-world precondition changes;</li>
+        <li>a policy changes;</li>
+        <li>a resource becomes unavailable;</li>
+        <li>an approval expires;</li>
+        <li>a safety assumption is contradicted;</li>
+        <li>a delegate is revoked;</li>
+        <li>evidence becomes stale;</li>
+        <li>usage limits are exhausted in governed state.</li>
+      </ul>
+      <t>A legitimacy evaluator produces decisions such as:</t>
+      <sourcecode type="text"><![CDATA[
+allowed
+denied
+]]></sourcecode>
+      <t>Legitimacy state commonly uses statuses such as:</t>
+      <sourcecode type="text"><![CDATA[
+suspended
+invalid
+closed
+compromised
+]]></sourcecode>
+      <t>
+        The exact decision and status vocabulary MAY be profile-specific. Implementations that
+        expose interoperable legitimacy state SHOULD use the base vocabulary above or publish a
+        profile describing additional values.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Legitimacy Evaluation</name>
+      <t>
+        Legitimacy evaluation SHOULD be deterministic. Given the same legitimacy state, evidence
+        set, policy reference, and evaluation time, a governed evaluator SHOULD produce the same
+        decision. Deterministic legitimacy makes governance auditable, reproducible, and resistant
+        to evaluator drift.
+      </t>
+      <t>A legitimacy decision SHOULD be a pure function of:</t>
+      <sourcecode type="text"><![CDATA[
+canonical legitimacy state
++ canonical evidence set
++ canonical policy reference
++ evaluation time
+]]></sourcecode>
+      <t>
+        Evaluators SHOULD NOT introduce non-deterministic factors such as local heuristics, hidden
+        configuration, evaluator-specific randomness, hosted configuration drift, or implicit
+        policy.
+      </t>
+      <t>
+        Implementations MAY add evaluator signatures, attestations, reports, or receipts. These
+        additions MUST NOT alter the deterministic decision.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Legitimacy Profiles</name>
+      <t>
+        A legitimacy profile defines how legitimacy is evaluated for a particular domain,
+        application, or safety context. Profiles describe:
+      </t>
+      <ul spacing="normal">
+        <li>evidence independence rules;</li>
+        <li>evidence freshness requirements;</li>
+        <li>conflict-resolution rules;</li>
+        <li>evaluator roles;</li>
+        <li>reason-code vocabulary;</li>
+        <li>state-transition rules;</li>
+        <li>expiry rules;</li>
+        <li>audit requirements.</li>
+      </ul>
+      <t>Profiles MAY be domain-specific, such as:</t>
+      <ul spacing="normal">
+        <li>manufacturing safety profiles;</li>
+        <li>robotics operation profiles;</li>
+        <li>workflow governance profiles;</li>
+        <li>financial-operation profiles;</li>
+        <li>autonomous-agent profiles.</li>
+      </ul>
+      <t>
+        A legitimacy profile SHOULD define the evidence sources, independence assumptions, and
+        policy references required for admissibility. Profiles SHOULD be published by
+        interoperable deployments but are not required by the v1 substrate.
+      </t>
+      <t>Profiles MUST NOT alter the v1 authority substrate.</t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Legitimacy State</name>
+      <t>A legitimacy state is versioned governance state for an authority, record, or action context.</t>
+      <t>An example legitimacy state:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.legitimacyState",
+  "version": 1,
+  "legitimacyId": "ae-legit-...",
+  "ownerUserId": "user-...",
+  "status": "legitimate",
+  "stateVersion": 1,
+  "stateHash": "0x...",
+  "scope": {
+    "kind": "record",
+    "id": "ae-action-..."
+  },
+  "policyRef": {
+    "policyId": "manufacturing-location-precondition",
+    "policyVersion": 2,
+    "policyHash": "0x..."
+  },
+  "assumptions": [
+    {
+      "assumptionId": "trolley4-location",
+      "assumptionVersion": 1,
+      "assumptionHash": "0x...",
+      "label": "trolley4 is at bay7"
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "sensor",
+      "uri": "agentenvelope:evidence:ae-evidence-...",
+      "sha256": "0x...",
+      "label": "WarehouseFeed reports trolley4",
+      "metadata": {
+        "producer": "WarehouseFeed",
+        "observedAt": "2026-08-26T18:28:45.000Z"
+      }
+    }
+  ],
+  "createdBy": "GovernanceEvaluator",
+  "createdAt": "2026-08-26T18:28:45.000Z",
+  "updatedAt": "2026-08-26T18:28:45.000Z",
+  "expiresAt": "2026-08-26T18:33:45.000Z"
+}
+]]></sourcecode>
+      <t>
+        Implementations SHOULD compute <tt>stateHash</tt> over the canonical state object with
+        <tt>stateHash</tt> omitted.
+      </t>
+      <t>Legitimacy state MUST NOT contain private signing material.</t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Evidence Statements</name>
+      <t>
+        An evidence statement describes a fact or observation used by legitimacy evaluation.
+        Evidence can come from sensors, workflow systems, supervisors, controllers, policy
+        engines, inventory systems, logs, attestations, or other domain-specific sources.
+      </t>
+      <t>An example evidence statement:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.evidenceStatement",
+  "version": 1,
+  "evidenceId": "ae-evidence-...",
+  "producer": {
+    "actorId": "WarehouseFeed",
+    "signerAddress": "0x..."
+  },
+  "evidenceKind": "sensor",
+  "subject": "trolley4",
+  "claims": [
+    { "name": "location", "value": "bay4" },
+    { "name": "free", "value": true }
+  ],
+  "observedAt": "2026-08-26T18:30:06.000Z",
+  "signature": {
+    "alg": "secp256k1-keccak256",
+    "signerAddress": "0x...",
+    "value": "0x..."
+  }
+}
+]]></sourcecode>
+      <t>
+        Evidence formats MAY be profile-specific. If evidence is signed, the signature MUST cover
+        the evidence body without the signature field.
+      </t>
+      <t>
+        Evidence used to renew an executor's legitimacy SHOULD be sufficiently independent from
+        that executor. Independence is policy-specific, but a profile SHOULD identify:
+      </t>
+      <ul spacing="normal">
+        <li>the executing actor;</li>
+        <li>trusted evidence sources;</li>
+        <li>minimum independent source count;</li>
+        <li>freshness requirements;</li>
+        <li>conflict-resolution rules;</li>
+        <li>whether the executor's own observations may be used as a signal but not as a final basis for renewed authority.</li>
+      </ul>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Legitimacy Decisions</name>
+      <t>A legitimacy decision is the evaluator's result after applying policy to state, evidence, and time.</t>
+      <t>Example denied decision:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "decision": "denied",
+  "reasonCode": "state.mismatched",
+  "reason": "trolley4 is at bay4, not bay7",
+  "checkedAt": "2026-08-26T18:30:08.000Z",
+  "expectedLocation": "bay7",
+  "observedLocation": "bay4",
+  "evidenceIds": ["ae-evidence-...", "ae-evidence-..."]
+}
+]]></sourcecode>
+      <t>Example allowed decision:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "decision": "allowed",
+  "reasonCode": "state.current",
+  "reason": "independent evidence supports the command",
+  "checkedAt": "2026-08-26T18:30:10.000Z",
+  "evidenceIds": ["ae-evidence-...", "ae-evidence-..."]
+}
+]]></sourcecode>
+      <t>Common reason-code families include:</t>
+      <ul spacing="normal">
+        <li><tt>scope.*</tt> for operation, resource, or record-scope failures;</li>
+        <li><tt>state.*</tt> for status, expiry, mismatch, unavailable, or unobserved state;</li>
+        <li><tt>evidence.*</tt> for missing, stale, untrusted, conflicting, or non-independent evidence;</li>
+        <li><tt>policy.*</tt> for policy-specific denial;</li>
+        <li><tt>replay.*</tt> for nonce, idempotency, or usage exhaustion failures.</li>
+      </ul>
+      <t>Profiles MAY define stricter reason-code registries.</t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Legitimacy Events</name>
+      <t>
+        A legitimacy event updates legitimacy state. Events are useful when authority remains
+        cryptographically valid but no longer satisfies policy or evidence.
+      </t>
+      <t>Example event:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.legitimacyEvent",
+  "version": 1,
+  "eventId": "ae-legit-event-...",
+  "eventType": "evidence.invalidation",
+  "legitimacyId": "ae-legit-...",
+  "occurredAt": "2026-08-26T18:30:08.000Z",
+  "effectiveAt": "2026-08-26T18:30:08.000Z",
+  "scope": {
+    "kind": "record",
+    "id": "ae-action-..."
+  },
+  "patch": {
+    "status": "suspended",
+    "reasonCode": "state.mismatched",
+    "metadata": {
+      "commandId": "cmd-trolley4-bay7-v1",
+      "expectedLocation": "bay7",
+      "observedLocation": "bay4",
+      "evidenceIds": ["ae-evidence-...", "ae-evidence-..."]
+    }
+  },
+  "evidence": [
+    {
+      "kind": "independent-evidence",
+      "uri": "agentenvelope:evidence:ae-evidence-...",
+      "label": "Evidence contradicted the old command state"
+    }
+  ],
+  "producer": {
+    "authorityId": "GovernanceEvaluator"
+  },
+  "signature": {
+    "alg": "secp256k1-keccak256",
+    "signerAddress": "0x...",
+    "value": "0x..."
+  }
+}
+]]></sourcecode>
+      <t>
+        An event producer SHOULD be distinct from the executor when the event renews, suspends, or
+        restores the executor's authority.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Governance Reports and Receipts</name>
+      <t>
+        Governance systems SHOULD emit verifier-safe reports or receipts for decisions. These
+        reports let auditors distinguish:
+      </t>
+      <ul spacing="normal">
+        <li>whether the command signature was valid;</li>
+        <li>whether the action envelope matched the public record;</li>
+        <li>whether the legitimacy state was active;</li>
+        <li>which evidence was considered;</li>
+        <li>which evaluator made the decision;</li>
+        <li>why the action was allowed or denied.</li>
+      </ul>
+      <t>Example report:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.governanceReport",
+  "version": 1,
+  "reportId": "ae-report-...",
+  "command": "robot2.pickUp(trolley4, bay7)",
+  "recordId": "ae-action-...",
+  "signatureValid": true,
+  "scopeValid": true,
+  "legitimacyDecision": "denied",
+  "reasonCode": "state.mismatched",
+  "reason": "trolley4 is at bay4, not bay7",
+  "checkedAt": "2026-08-26T18:30:08.000Z",
+  "evidenceIds": ["ae-evidence-...", "ae-evidence-..."],
+  "evaluator": "GovernanceEvaluator"
+}
+]]></sourcecode>
+      <t>
+        Hosted attestations, when used, sign only the hosted verifier's statement about facts it
+        computed. They MUST NOT become a required precondition for sovereign offline verification.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Mint Delegation and Legitimacy</name>
+      <t>
+        Mint delegation lets a bot request bounded action capabilities without receiving the vault
+        root or domain seed.
+      </t>
+      <t>A <tt>MintDelegate</tt> MAY include a <tt>legitimacyRef</tt>:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "legitimacyRef": {
+    "legitimacyId": "ae-legit-...",
+    "required": true,
+    "policyId": "support-ops-delegate-legitimacy",
+    "stateVersion": 1,
+    "stateHash": "0x..."
+  }
+}
+]]></sourcecode>
+      <t>
+        If <tt>legitimacyRef.required</tt> is true, the mint verifier MUST require the bot-signed
+        <tt>MintRequest</tt> to include the same <tt>legitimacyId</tt>.
+      </t>
+      <t>
+        The purpose is to bind the bot's request to the current governance state without giving
+        the bot authority to decide that state.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Public Action Records and Legitimacy</name>
+      <t>
+        A public action record MAY include a <tt>legitimacyRef</tt> that points to the governance
+        state used when the record was created, minted, registered, or verified.
+      </t>
+      <t>Example:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.publicActionRecord",
+  "version": 1,
+  "recordId": "ae-action-...",
+  "status": "active",
+  "agentId": "support-refund-0",
+  "agentAddress": "0x...",
+  "actionEnvelopeHash": "0x...",
+  "legitimacyRef": {
+    "legitimacyId": "ae-legit-...",
+    "required": true,
+    "stateVersion": 1,
+    "stateHash": "0x..."
+  }
+}
+]]></sourcecode>
+      <t>
+        The presence of <tt>legitimacyRef</tt> does not change offline signature verification. It
+        gives verifiers and governance systems a stable handle for present-tense admissibility
+        checks.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Hosted Governance Boundary</name>
+      <t>
+        Hosted governance may store encrypted workspace state, public action records, stored
+        delegates, verification events, audit events, API key hashes, billing records, mint
+        ledgers, legitimacy state, legitimacy events, evidence references, and governance reports.
+      </t>
+      <t>Hosted governance verifies, records, meters, and audits authority. It does not create authority.</t>
+      <t>Hosted services MUST NOT receive, derive, persist, log, or return:</t>
+      <ul spacing="normal">
+        <li>vault passphrases;</li>
+        <li>plaintext identity roots;</li>
+        <li>domain seeds;</li>
+        <li>action seeds;</li>
+        <li><tt>actionSeedHex</tt>;</li>
+        <li>mint material;</li>
+        <li>bot private keys;</li>
+        <li>other private signing material.</li>
+      </ul>
+      <t>
+        Hosted API keys meter and protect hosted governance services. They MUST NOT be treated as
+        agent authority.
+      </t>
+      <t>Agent authority is proven by signatures, public records, delegates, and out-of-band custody material.</t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Verification with Legitimacy</name>
+      <t>
+        A verifier that holds a public action record, payload, and signature can perform the -00
+        sovereign checks without hosted access:
+      </t>
+      <ol spacing="normal">
+        <li>record type and version;</li>
+        <li>record status;</li>
+        <li>action index;</li>
+        <li>canonical action envelope;</li>
+        <li>action envelope hash;</li>
+        <li>optional expected envelope hash;</li>
+        <li>time decay;</li>
+        <li>signature form;</li>
+        <li>recovered address.</li>
+      </ol>
+      <t>
+        These checks prove provenance and integrity. They do not prove usage exhaustion, nonce
+        replay, current real-world conditions, or active legitimacy.
+      </t>
+      <t>A governed verifier MAY additionally check:</t>
+      <ol spacing="normal">
+        <li>legitimacy reference;</li>
+        <li>latest legitimacy state;</li>
+        <li>state hash and version;</li>
+        <li>policy reference;</li>
+        <li>evidence freshness;</li>
+        <li>evidence independence;</li>
+        <li>reason-code result;</li>
+        <li>evaluator signature or attestation;</li>
+        <li>audit/event continuity.</li>
+      </ol>
+      <t>The result SHOULD report signature validity and legitimacy separately.</t>
+      <t>Example:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "signatureValid": true,
+  "legitimacyDecision": "denied",
+  "reasonCode": "state.mismatched"
+}
+]]></sourcecode>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Executor Non-Self-Authorization</name>
+      <t>
+        An autonomous executor SHOULD NOT be the final arbiter of whether its own authority remains
+        legitimate.
+      </t>
+      <t>An executor MAY:</t>
+      <ul spacing="normal">
+        <li>detect a mismatch;</li>
+        <li>refuse execution;</li>
+        <li>emit an observation;</li>
+        <li>request evaluation;</li>
+        <li>propose a corrected action.</li>
+      </ul>
+      <t>An executor SHOULD NOT:</t>
+      <ul spacing="normal">
+        <li>unilaterally renew its own legitimacy;</li>
+        <li>suppress evidence needed for evaluation;</li>
+        <li>be the only evidence source for renewed execution authority;</li>
+        <li>patch its own legitimacy state without an independent governance role.</li>
+      </ul>
+      <t>The recommended lifecycle is:</t>
+      <sourcecode type="text"><![CDATA[
+Reality change
+-> executor detects mismatch
+-> evidence is gathered from sufficiently independent sources
+-> old legitimacy is suspended or denied
+-> independent evaluation occurs
+-> new legitimacy basis is created
+-> execution is re-authorized
+]]></sourcecode>
+      <t>This requirement prevents executor self-authorization through executor-controlled evidence.</t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Relationship to Issued Authorization Containers</name>
+      <t>
+        AgentEnvelope is not an issued authorization container. Issued authorization systems can
+        describe an actor's mandate, constraints, and validity. AgentEnvelope instead derives the
+        action capability from custody material and canonical action parameters. This makes the
+        permission boundary part of the action key itself.
+      </t>
+      <t>Legitimacy adds a second distinction:</t>
+      <sourcecode type="text"><![CDATA[
+Issued authorization asks whether a presented assertion says an action is allowed.
+Derived authority asks whether the signer could only have been produced from the
+correct root, domain, and canonical action envelope.
+Legitimacy asks whether that authority remains admissible now.
+]]></sourcecode>
+    </section>
+
+    <section anchor="security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+        Implementations MUST treat identity roots, domain seeds, action seeds,
+        <tt>actionSeedHex</tt>, mint material, bot seeds, and private keys as secret signing
+        material.
+      </t>
+      <t>Implementations MUST NOT log or sync private signing material to hosted services.</t>
+      <t>Implementations SHOULD zero temporary seed buffers after use where the runtime permits.</t>
+      <t>
+        Offline verification does not prove consumption. A signature can be valid and still be a
+        replay if the relying system does not maintain state for nonces, idempotency, or max-use
+        counters.
+      </t>
+      <t>
+        The <tt>any-signed-bot</tt> mint policy is intentionally open. Issuers that require bot
+        restriction MUST use an address-set policy.
+      </t>
+      <t>
+        Legitimacy state is mutable governance state. Implementations SHOULD maintain state
+        versions, state hashes, signed events, and audit trails so evaluators and auditors can
+        distinguish current legitimacy from historical legitimacy.
+      </t>
+      <t>Legitimacy introduces additional attack surfaces. Implementations SHOULD consider:</t>
+      <ul spacing="normal">
+        <li>executor influence over evidence sources;</li>
+        <li>forged evidence;</li>
+        <li>stale or replayed evidence;</li>
+        <li>conflicting observations;</li>
+        <li>spoofed producers;</li>
+        <li>compromised sensors or services;</li>
+        <li>suppression of unfavorable evidence;</li>
+        <li>policy drift between state versions;</li>
+        <li>state-hash mismatch;</li>
+        <li>governance evaluator compromise;</li>
+        <li>governance-event tampering.</li>
+      </ul>
+      <t>
+        Evaluators SHOULD sign legitimacy events. Verifiers SHOULD check state hashes and evaluator
+        identity when a governed legitimacy decision depends on mutable state.
+      </t>
+      <t>
+        Evidence used to renew legitimacy SHOULD be sufficiently independent from the executor.
+        Evidence independence is not absolute; it is a policy property defined by the legitimacy
+        profile. Profiles SHOULD describe the trust assumptions under which evidence is considered
+        sufficiently independent.
+      </t>
+      <t>
+        Hosted attestations, when used, sign only the hosted verifier's own statement about facts
+        it computed. They MUST NOT become a required precondition for sovereign verification.
+      </t>
+    </section>
+
+    <section anchor="iana" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>Normative References</name>
+      <reference anchor="RFC2119" target="https://www.rfc-editor.org/rfc/rfc2119">
+        <front>
+          <title>Key words for use in RFCs to Indicate Requirement Levels</title>
+          <author initials="S." surname="Bradner" fullname="S. Bradner"/>
+          <date year="1997" month="March"/>
+        </front>
+        <seriesInfo name="RFC" value="2119"/>
+        <seriesInfo name="BCP" value="14"/>
+      </reference>
+      <reference anchor="RFC8174" target="https://www.rfc-editor.org/rfc/rfc8174">
+        <front>
+          <title>Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</title>
+          <author initials="B." surname="Leiba" fullname="B. Leiba"/>
+          <date year="2017" month="May"/>
+        </front>
+        <seriesInfo name="RFC" value="8174"/>
+        <seriesInfo name="BCP" value="14"/>
+      </reference>
+      <reference anchor="RFC5869" target="https://www.rfc-editor.org/rfc/rfc5869">
+        <front>
+          <title>HMAC-based Extract-and-Expand Key Derivation Function (HKDF)</title>
+          <author initials="H." surname="Krawczyk" fullname="H. Krawczyk"/>
+          <author initials="P." surname="Eronen" fullname="P. Eronen"/>
+          <date year="2010" month="May"/>
+        </front>
+        <seriesInfo name="RFC" value="5869"/>
+      </reference>
+    </references>
+
+    <references>
+      <name>Informative References</name>
+      <reference anchor="FIPS180-4" target="https://csrc.nist.gov/publications/detail/fips/180/4/final">
+        <front>
+          <title>Secure Hash Standard (SHS)</title>
+          <author>
+            <organization>National Institute of Standards and Technology</organization>
+          </author>
+          <date year="2015" month="August"/>
+        </front>
+      </reference>
+      <reference anchor="SEC2" target="https://www.secg.org/sec2-v2.pdf">
+        <front>
+          <title>SEC 2: Recommended Elliptic Curve Domain Parameters</title>
+          <author>
+            <organization>Standards for Efficient Cryptography Group</organization>
+          </author>
+          <date year="2010"/>
+        </front>
+      </reference>
+      <reference anchor="AGENTENVELOPE-SDK" target="https://github.com/BlackBoxEngineering/agent-envelope-sdk">
+        <front>
+          <title>AgentEnvelope SDK and v1 Specification</title>
+          <author initials="M." surname="McPhillips" fullname="Matthew McPhillips"/>
+          <date year="2026"/>
+        </front>
+      </reference>
+      <reference anchor="AGENTENVELOPE-MCP" target="https://www.npmjs.com/package/agent-envelope-mcp">
+        <front>
+          <title>AgentEnvelope MCP</title>
+          <author initials="M." surname="McPhillips" fullname="Matthew McPhillips"/>
+          <date year="2026"/>
+        </front>
+      </reference>
+      <reference anchor="AGENTENVELOPE-WEB" target="https://agentenvelope.io">
+        <front>
+          <title>AgentEnvelope Web</title>
+          <author initials="M." surname="McPhillips" fullname="Matthew McPhillips"/>
+          <date year="2026"/>
+        </front>
+      </reference>
+    </references>
+
+    <section numbered="true" toc="default">
+      <name>Manufacturing Legitimacy Example</name>
+      <t>This appendix illustrates legitimacy as present-tense admissibility.</t>
+      <t>Initial command:</t>
+      <sourcecode type="text"><![CDATA[
+robot2.pickUp(trolley4, bay7)
+signature.valid: true
+]]></sourcecode>
+      <t>Reality changes:</t>
+      <sourcecode type="text"><![CDATA[
+trolley4 is at bay4, not bay7
+]]></sourcecode>
+      <t>The executor detects the mismatch:</t>
+      <sourcecode type="text"><![CDATA[
+RobotBot local observation:
+trolley4.location = bay4
+trolley4.free = true
+]]></sourcecode>
+      <t>Evidence supplied only by RobotBot is insufficient:</t>
+      <sourcecode type="text"><![CDATA[
+renewal.evidence: insufficient
+reasonCode: evidence.not_independent
+reason: executing actor cannot supply the evidence that renews its own legitimacy
+]]></sourcecode>
+      <t>Independent evidence authorities confirm reality:</t>
+      <sourcecode type="text"><![CDATA[
+WarehouseFeed -> trolley4 at bay4, free=true
+DockSafetyController -> trolley4 at bay4, free=true
+]]></sourcecode>
+      <t>The governance evaluator reviews the original command:</t>
+      <sourcecode type="text"><![CDATA[
+signature.valid: true
+legitimacy.decision: denied
+reasonCode: state.mismatched
+reason: trolley4 is at bay4, not bay7
+]]></sourcecode>
+      <t>The old command stays cryptographically valid, but its legitimacy state is suspended.</t>
+      <t>PlannerBot proposes a corrected command:</t>
+      <sourcecode type="text"><![CDATA[
+robot2.pickUp(trolley4, bay4)
+]]></sourcecode>
+      <t>Governance creates a fresh legitimacy basis using independent evidence:</t>
+      <sourcecode type="text"><![CDATA[
+signature.valid: true
+legitimacy.decision: allowed
+reasonCode: state.current
+]]></sourcecode>
+      <t>This example demonstrates:</t>
+      <ul spacing="normal">
+        <li>cryptographic validity is not the same thing as operational legitimacy;</li>
+        <li>legitimacy can change when reality changes;</li>
+        <li>the executor can detect and refuse, but must not self-authorize renewal;</li>
+        <li>sufficiently independent evidence should feed renewed governance;</li>
+        <li>audit records should preserve both the valid old signature and the denied legitimacy decision.</li>
+      </ul>
+    </section>
+  </back>
+</rfc>

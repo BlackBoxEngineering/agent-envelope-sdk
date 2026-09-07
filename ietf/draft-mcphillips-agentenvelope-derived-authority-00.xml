@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+     version="3"
+     category="info"
+     docName="draft-mcphillips-agentenvelope-derived-authority-00"
+     ipr="trust200902"
+     submissionType="independent"
+     xml:lang="en">
+  <front>
+    <title abbrev="AgentEnvelope Derived Authority">AgentEnvelope: Deterministic Derived Authority for Autonomous Systems</title>
+    <seriesInfo name="Internet-Draft" value="draft-mcphillips-agentenvelope-derived-authority-00"/>
+    <author fullname="Matthew McPhillips" initials="M." surname="McPhillips">
+      <organization>BlackBox Engineering</organization>
+      <address>
+        <email>mattmcp@blackboxengineering.co.uk</email>
+        <uri>https://agentenvelope.io</uri>
+      </address>
+    </author>
+    <date year="2026" month="August" day="17"/>
+    <area>Security</area>
+    <keyword>agent authority</keyword>
+    <keyword>autonomous systems</keyword>
+    <keyword>derived authority</keyword>
+    <keyword>capabilities</keyword>
+    <abstract>
+      <t>
+        AgentEnvelope defines a deterministic derived-authority model for autonomous and
+        action-performing systems. Instead of issuing bearer credentials or authorization
+        envelopes from a central authority, AgentEnvelope derives scoped action capabilities from
+        customer-held custody material and canonical action envelopes. A verifier can check an
+        action signature against a public action record without receiving roots, seeds, private
+        keys, or hosted service access. This document specifies the v1 derivation model, signing
+        domains, public record structure, mint delegation flow, verification rules, and security
+        considerations.
+      </t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>
+        Autonomous software agents, workflow steps, backend workers, bots, devices, and other
+        action-performing systems increasingly need narrowly scoped authority to act without
+        receiving long-lived shared secrets. Existing authorization systems commonly answer this
+        by issuing credentials, tokens, assertions, certificates, or signed authorization
+        containers.
+      </t>
+      <t>
+        AgentEnvelope specifies a different model: authority is derived, not issued. A customer-held
+        root deterministically derives domain authority; a canonical action envelope then derives a
+        leaf action capability. The same inputs produce the same public action identity. A child
+        capability does not reveal its parent or siblings.
+      </t>
+      <t>
+        This document describes AgentEnvelope v1. It is informational and records an implemented
+        protocol surface. It does not require any particular AI framework, transport, blockchain,
+        hosted service, identity provider, or trust registry.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Terminology</name>
+      <t>
+        The key words "MUST", "MUST NOT", "REQUIRED", "SHOULD", "SHOULD NOT", and "MAY" in this
+        document are to be interpreted as described in BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/>
+        when, and only when, they appear in all capitals.
+      </t>
+      <dl newline="true" spacing="normal">
+        <dt>Action Envelope</dt>
+        <dd>The complete canonical permission input for one action capability.</dd>
+        <dt>Action Seed</dt>
+        <dd>Private 32-byte signing material derived for one action envelope.</dd>
+        <dt>Agent Address</dt>
+        <dd>The public EVM-style address derived from an action seed.</dd>
+        <dt>Capability</dt>
+        <dd>Private action authority held by a worker or bot.</dd>
+        <dt>Domain</dt>
+        <dd>A stable authority branch scoped to a class of work.</dd>
+        <dt>Public Action Record</dt>
+        <dd>Verifier-safe metadata binding an agent address to a domain projection and action envelope.</dd>
+        <dt>Sovereign Verification</dt>
+        <dd>Offline verification of a payload signature against a public action record.</dd>
+      </dl>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Design Goals</name>
+      <ul spacing="normal">
+        <li>Derive authority rather than issue bearer credentials.</li>
+        <li>Keep roots, seeds, and private action material inside customer custody boundaries.</li>
+        <li>Bind action authority to a complete canonical action envelope.</li>
+        <li>Allow stateless signature verification from public records.</li>
+        <li>Keep hosted governance additive, never required for offline verification.</li>
+        <li>Preserve isolation between domains, actions, and delegated mint capabilities.</li>
+      </ul>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Cryptographic Primitives</name>
+      <t>AgentEnvelope v1 uses the following primitives:</t>
+      <ul spacing="normal">
+        <li>HKDF-SHA256 <xref target="RFC5869"/> for key derivation.</li>
+        <li>The derivation salt string <tt>agentenvelope-v1</tt>.</li>
+        <li>SHA-256 <xref target="FIPS180-4"/> for content hashes.</li>
+        <li>Keccak-256 for signed message hashes.</li>
+        <li>secp256k1 <xref target="SEC2"/> signatures.</li>
+        <li>An EVM-style address: <tt>0x</tt> plus the last 20 bytes of keccak-256 of the uncompressed secp256k1 public key without its leading format byte.</li>
+      </ul>
+      <t>
+        All private seeds in v1 are 32-byte byte strings. If a seed is not a valid secp256k1 scalar,
+        an implementation MUST transform it to a valid scalar using HKDF-SHA256 with the same salt
+        and info string <tt>key</tt>, retrying no more than 8 times.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Canonical JSON</name>
+      <t>
+        All derivation, content-hash, and signing inputs MUST use canonical JSON with object keys
+        sorted lexicographically, recursive object canonicalization, array order preserved, normal
+        JSON encoding for primitives, and no added whitespace.
+      </t>
+      <sourcecode type="json"><![CDATA[
+{"z":1,"a":{"y":2,"x":3}}
+]]></sourcecode>
+      <t>canonicalizes to:</t>
+      <sourcecode type="json"><![CDATA[
+{"a":{"x":3,"y":2},"z":1}
+]]></sourcecode>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Signing Domains</name>
+      <t>Every signature domain separates its message with an exact UTF-8 prefix before canonical JSON:</t>
+      <ul spacing="normal">
+        <li>Action payload: <tt>\x19AgentEnvelope Signed Message:\n</tt></li>
+        <li>MintDelegate body: <tt>\x19AgentEnvelope Mint Delegate:\n</tt></li>
+        <li>MintRequest body: <tt>\x19AgentEnvelope Mint Request:\n</tt></li>
+        <li>Attestation receipt: <tt>\x19AgentEnvelope Attestation:\n</tt></li>
+      </ul>
+      <t>The signed hash is:</t>
+      <sourcecode type="text"><![CDATA[
+keccak256(utf8(prefix + canonicalJSON(body)))
+]]></sourcecode>
+      <t>
+        The signature format is <tt>0x</tt> plus 32-byte <tt>r</tt>, 32-byte <tt>s</tt>, and a 1-byte
+        recovery id encoded as 27 or 28.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Authority Tree</name>
+      <t>The AgentEnvelope authority path is:</t>
+      <sourcecode type="text"><![CDATA[
+identityRoot -> domainSeed -> actionEnvelope -> actionSeed -> agentAddress
+]]></sourcecode>
+      <t>
+        The public projection is the domain public summary, action envelope, action envelope hash,
+        and agent address. It MUST NOT include the identity root, passphrase, domain seed, action
+        seed, actionSeedHex, mint material, or private keys.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Domain Derivation</name>
+      <t>A DomainInfo object is the immutable canonical input for domain derivation:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.domainInfo",
+  "version": 1,
+  "namespace": "example",
+  "domainId": "support-ops",
+  "kind": "communication"
+}
+]]></sourcecode>
+      <t>The domain seed is derived as:</t>
+      <sourcecode type="text"><![CDATA[
+HKDF-SHA256(
+  ikm = identityRoot,
+  salt = "agentenvelope-v1",
+  info = canonicalJSON({ "purpose": "domain", "domainInfo": domainInfo }),
+  length = 32
+)
+]]></sourcecode>
+      <t>
+        The domain hash is SHA-256 over <tt>canonicalJSON(domainInfo)</tt>. The domain address is the
+        v1 secp256k1 address of <tt>domainSeed</tt>.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Action Envelope</name>
+      <t>An ActionEnvelope is the complete immutable permission input for one deterministic action key.</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.actionEnvelope",
+  "version": 1,
+  "agentId": "support-sender",
+  "domain": {
+    "domainId": "support-ops",
+    "domainHash": "0x..."
+  },
+  "actionIndex": 0,
+  "operation": "send-message",
+  "resources": ["channel:support", "thread:customer-123"],
+  "timeWindow": { "notBefore": 1786924800000, "notAfter": 1798761599000 },
+  "decayPolicy": { "mode": "BOTH" },
+  "limits": { "maxUses": 1, "enforcement": "external" }
+}
+]]></sourcecode>
+      <t>
+        Implementations MUST validate that the domain reference matches the selected domain
+        projection, <tt>actionIndex</tt> is a non-negative integer, resources are non-empty,
+        time-based decay has a finite time boundary, action-based decay has a positive
+        <tt>maxUses</tt>, and v1 public envelopes use <tt>limits.enforcement</tt> set to
+        <tt>external</tt>.
+      </t>
+      <t>The action seed is derived as:</t>
+      <sourcecode type="text"><![CDATA[
+HKDF-SHA256(
+  ikm = domainSeed,
+  salt = "agentenvelope-v1",
+  info = canonicalJSON({ "purpose": "action", "actionEnvelope": actionEnvelope }),
+  length = 32
+)
+]]></sourcecode>
+      <t>
+        Changing the agent id, domain, action index, operation, resources, time window, decay mode,
+        or limits changes the derived action seed and therefore the agent address.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Public Action Record</name>
+      <t>A PublicActionRecord is verifier-safe metadata for one action capability.</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "type": "agentenvelope.publicActionRecord",
+  "version": 1,
+  "recordId": "ae-action-...",
+  "ownerUserId": "user-...",
+  "custodyMode": "sovereign-browser",
+  "verifierProfile": "domain-action-envelope",
+  "status": "active",
+  "createdAt": "2026-07-24T15:23:00.000Z",
+  "agentId": "support-sender",
+  "agentAddress": "0x...",
+  "domain": { "...": "domain projection" },
+  "actionEnvelope": { "...": "action envelope" },
+  "canonicalActionEnvelope": "{...}",
+  "actionEnvelopeHash": "0x...",
+  "expiry": "2026-12-31T23:59:59.000Z"
+}
+]]></sourcecode>
+      <t>
+        Public action records MUST NOT contain private signing material. Metadata such as owner id,
+        record id, creation time, and expiry does not enter key derivation.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Verification</name>
+      <t>
+        A verifier that holds a public action record, payload, and signature checks the record type
+        and version, record status, action index, canonical action envelope, action envelope hash,
+        optional expected envelope hash, time decay, signature form, and recovered address.
+      </t>
+      <t>
+        These checks are stateless except for time. They prove that a signature matches a public
+        action record and that the record's time boundary is satisfied. They do not prove that a
+        max-use slot is unspent. Systems that require replay prevention or usage exhaustion MUST
+        maintain verifier-controlled or hosted state.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Mint Delegation</name>
+      <t>
+        Mint delegation lets a bot request bounded action capabilities without receiving the vault
+        root or domain seed.
+      </t>
+      <t>Mint material is derived as:</t>
+      <sourcecode type="text"><![CDATA[
+HKDF-SHA256(
+  ikm = identityRoot,
+  salt = "agentenvelope-v1",
+  info = canonicalJSON({ "purpose": "mint-material", "domainHash": domainHash }),
+  length = 32
+)
+]]></sourcecode>
+      <t>
+        A MintDelegate is signed by the domain issuer. A MintRequest is signed by the bot. A mint
+        verifier checks both signatures, the bot policy, resource bounds, operation bounds, action
+        index range, max uses, time window containment, nonce replay, and mint count. Nonce replay
+        and mint-count enforcement require state.
+      </t>
+      <t>After a valid delegate and request, the remote-mint action seed is derived as:</t>
+      <sourcecode type="text"><![CDATA[
+HKDF-SHA256(
+  ikm = mintMaterial,
+  salt = "agentenvelope-v1",
+  info = canonicalJSON({
+    "purpose": "remote-mint",
+    "delegateHash": delegateHash,
+    "mintRequest": requestBodyWithoutBotSignature
+  }),
+  length = 32
+)
+]]></sourcecode>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Hosted Governance Boundary</name>
+      <t>
+        Hosted governance may store encrypted workspace state, public action records, stored
+        delegates, verification events, audit events, API key hashes, billing records, and mint
+        ledgers. Hosted governance verifies, records, meters, and audits authority; it does not
+        create authority.
+      </t>
+      <t>
+        Hosted services MUST NOT receive, derive, persist, log, or return vault passphrases,
+        plaintext identity roots, domain seeds, action seeds, actionSeedHex, mint material, or
+        private keys.
+      </t>
+      <t>
+        Hosted API keys meter and protect hosted governance services. They MUST NOT be treated as
+        agent authority. Agent authority is proven by signatures, public records, delegates, and
+        out-of-band key material.
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Relationship to Issued Authorization Containers</name>
+      <t>
+        AgentEnvelope is not an issued authorization container. Issued authorization systems can
+        describe an agent's mandate, constraints, and validity. AgentEnvelope instead derives the
+        action capability from custody material and canonical action parameters. This makes the
+        permission boundary part of the action key itself.
+      </t>
+      <t>
+        The distinction is architectural: issued authorization asks whether a presented assertion
+        says an action is allowed; derived authority asks whether the action signer could only have
+        been produced from the correct root, domain, and canonical action envelope.
+      </t>
+    </section>
+
+    <section anchor="security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+        Implementations MUST treat identity roots, domain seeds, action seeds, actionSeedHex, mint
+        material, bot seeds, and private keys as secret signing material. They MUST NOT log or sync
+        private signing material to hosted services. Implementations SHOULD zero temporary seed
+        buffers after use where the runtime permits.
+      </t>
+      <t>
+        Offline verification does not prove consumption. A signature can be valid and still be a
+        replay if the relying system does not maintain state for nonces, idempotency, or max-use
+        counters.
+      </t>
+      <t>
+        The <tt>any-signed-bot</tt> mint policy is intentionally open. Issuers that require bot
+        restriction MUST use an address-set policy.
+      </t>
+      <t>
+        Hosted attestation, when used, signs only the hosted verifier's own statement about facts it
+        computed. It must not become a precondition for sovereign verification.
+      </t>
+    </section>
+
+    <section anchor="iana" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>Normative References</name>
+      <reference anchor="RFC2119" target="https://www.rfc-editor.org/rfc/rfc2119">
+        <front>
+          <title>Key words for use in RFCs to Indicate Requirement Levels</title>
+          <author initials="S." surname="Bradner" fullname="S. Bradner"/>
+          <date year="1997" month="March"/>
+        </front>
+        <seriesInfo name="RFC" value="2119"/>
+        <seriesInfo name="BCP" value="14"/>
+      </reference>
+      <reference anchor="RFC8174" target="https://www.rfc-editor.org/rfc/rfc8174">
+        <front>
+          <title>Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</title>
+          <author initials="B." surname="Leiba" fullname="B. Leiba"/>
+          <date year="2017" month="May"/>
+        </front>
+        <seriesInfo name="RFC" value="8174"/>
+        <seriesInfo name="BCP" value="14"/>
+      </reference>
+      <reference anchor="RFC5869" target="https://www.rfc-editor.org/rfc/rfc5869">
+        <front>
+          <title>HMAC-based Extract-and-Expand Key Derivation Function (HKDF)</title>
+          <author initials="H." surname="Krawczyk" fullname="H. Krawczyk"/>
+          <author initials="P." surname="Eronen" fullname="P. Eronen"/>
+          <date year="2010" month="May"/>
+        </front>
+        <seriesInfo name="RFC" value="5869"/>
+      </reference>
+    </references>
+
+    <references>
+      <name>Informative References</name>
+      <reference anchor="FIPS180-4" target="https://csrc.nist.gov/publications/detail/fips/180/4/final">
+        <front>
+          <title>Secure Hash Standard (SHS)</title>
+          <author>
+            <organization>National Institute of Standards and Technology</organization>
+          </author>
+          <date year="2015" month="August"/>
+        </front>
+      </reference>
+      <reference anchor="SEC2" target="https://www.secg.org/sec2-v2.pdf">
+        <front>
+          <title>SEC 2: Recommended Elliptic Curve Domain Parameters</title>
+          <author>
+            <organization>Standards for Efficient Cryptography Group</organization>
+          </author>
+          <date year="2010"/>
+        </front>
+      </reference>
+      <reference anchor="AGENTENVELOPE-SDK" target="https://github.com/BlackBoxEngineering/agent-envelope-sdk">
+        <front>
+          <title>AgentEnvelope SDK and v1 Specification</title>
+          <author initials="M." surname="McPhillips" fullname="Matthew McPhillips"/>
+          <date year="2026"/>
+        </front>
+      </reference>
+    </references>
+  </back>
+</rfc>

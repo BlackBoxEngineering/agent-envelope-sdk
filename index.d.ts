@@ -168,6 +168,11 @@ export interface VerifyRecordResult {
         actionRegistered: boolean;
         canonicalActionEnvelopeMatches: boolean;
         actionEnvelopeHashConsistent: boolean;
+        domainCanonicalMatches: boolean;
+        domainHashConsistent: boolean;
+        domainHashMatches: boolean;
+        domainIdMatches: boolean;
+        actionEnvelopeShapeValid: boolean;
         signatureWellFormed: boolean;
         signatureValid: boolean;
         addressMatchesRecord: boolean;

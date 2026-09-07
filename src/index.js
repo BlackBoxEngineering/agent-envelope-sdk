@@ -7,6 +7,8 @@ import { DECAY_MODES } from './constants.js';
 
 const encoder = new TextEncoder();
 const SECP256K1_N = secp256k1.CURVE.n;
+const LOWER_HEX_20 = /^0x[a-f0-9]{40}$/;
+const LOWER_HEX_32 = /^0x[a-f0-9]{64}$/;
 
 // Internal byte prefixes.
 // Protocol domain separators used before hashing/signing.
@@ -60,7 +62,12 @@ function _seedAddr(seed) {
  * @returns {string}      Canonical JSON string.
  */
 export function canonicalJSON(value) {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value);
+    if (value === undefined || typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') throw new Error('value must be JSON-serializable');
+    if (typeof value === 'number') {
+        if (!Number.isSafeInteger(value) || Object.is(value, -0)) throw new Error('canonical JSON numbers must be safe integers');
+    }
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map((item) => canonicalJSON(item)).join(',')}]`;
     return `{${Object.keys(value)
         .sort()
         .map((k) => `${JSON.stringify(k)}:${canonicalJSON(value[k])}`)
@@ -381,6 +388,7 @@ export function verifyMintRequest(request, delegate) {
             if (!delegate.allowedBotAddresses.some((a) => a.toLowerCase() === recoveredBot.toLowerCase())) return { valid: false, reason: 'bot address not in allowed set' };
         }
         if (request.delegateHash.toLowerCase() !== contentHash(canonicalJSON(delegateBody)).toLowerCase()) return { valid: false, reason: 'delegateHash mismatch' };
+        if (delegate.legitimacyRef?.required === true && request.legitimacyId !== delegate.legitimacyRef.legitimacyId) return { valid: false, reason: 'legitimacyId mismatch' };
         if (!delegate.allowedOperations.includes(request.operation)) return { valid: false, reason: 'operation not allowed' };
         for (const resource of request.resources) {
             const pfx = resource.split(':')[0];
@@ -465,15 +473,26 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
     try {
         if (record?.type !== 'agentenvelope.publicActionRecord') throw new Error('public action record type is invalid');
         if (record.version !== 1) throw new Error('public action record version is invalid');
-        if (!record.agentAddress || !/^0x[a-fA-F0-9]{40}$/.test(record.agentAddress)) throw new Error('agent address is invalid');
+        if (!record.agentAddress || !LOWER_HEX_20.test(record.agentAddress)) throw new Error('agent address is invalid');
+        if (typeof record.actionEnvelopeHash !== 'string' || !LOWER_HEX_32.test(record.actionEnvelopeHash)) throw new Error('action envelope hash is invalid');
+        if (expectedActionEnvelopeHash !== undefined && (typeof expectedActionEnvelopeHash !== 'string' || !LOWER_HEX_32.test(expectedActionEnvelopeHash))) throw new Error('expected action envelope hash is invalid');
         if (!record.actionEnvelope || typeof record.actionEnvelope !== 'object') throw new Error('action envelope is required');
+        const domain = record.domain ?? {};
+        const envelopeDomain = record.actionEnvelope.domain ?? {};
+        const recordDomainId = domain.domainInfo?.domainId ?? domain.domainId;
+        const domainHashWellFormed = typeof domain.domainHash === 'string' && LOWER_HEX_32.test(domain.domainHash);
+        const domainCanonicalMatches = domain.domainInfo && domain.canonicalDomainInfo ? domain.canonicalDomainInfo === canonicalJSON(domain.domainInfo) : true;
+        const domainHashConsistent = domain.canonicalDomainInfo ? domainHashWellFormed && domain.domainHash === contentHash(domain.canonicalDomainInfo) : domainHashWellFormed;
+        const domainHashMatches = domainHashWellFormed && envelopeDomain.domainHash === domain.domainHash;
+        const domainIdMatches = typeof recordDomainId === 'string' && envelopeDomain.domainId === recordDomainId;
+        const actionEnvelopeShape = _validateActionEnvelope(record.actionEnvelope);
         const recordActive = record.status === 'active';
         const actionIndexMatches = record.actionEnvelope.actionIndex === actionIndex;
         const canonicalActionEnvelopeMatches = record.canonicalActionEnvelope === canonicalJSON(record.actionEnvelope);
-        const actionEnvelopeHashConsistent = typeof record.actionEnvelopeHash === 'string' && record.actionEnvelopeHash.toLowerCase() === contentHash(record.canonicalActionEnvelope ?? '').toLowerCase();
+        const actionEnvelopeHashConsistent = record.actionEnvelopeHash === contentHash(record.canonicalActionEnvelope ?? '');
         const decay = _checkDecay(record.actionEnvelope);
         const decayed = !decay.valid;
-        const actionEnvelopeHashMatches = !expectedActionEnvelopeHash || expectedActionEnvelopeHash.toLowerCase() === record.actionEnvelopeHash.toLowerCase();
+        const actionEnvelopeHashMatches = !expectedActionEnvelopeHash || expectedActionEnvelopeHash === record.actionEnvelopeHash;
         const sigResult = actionIndexMatches
             ? (() => {
                   try {
@@ -485,8 +504,8 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
               })()
             : { valid: false, reason: 'action index not registered' };
         const signatureWellFormed = sigResult.reason !== 'signature must be 65 bytes' && sigResult.reason !== 'signature recovery byte must be 27 or 28';
-        const valid = recordActive && actionIndexMatches && canonicalActionEnvelopeMatches && actionEnvelopeHashConsistent && sigResult.valid && actionEnvelopeHashMatches && !decayed;
-        const reason = valid ? undefined : !recordActive ? 'record inactive' : !actionIndexMatches ? 'action index not registered' : !canonicalActionEnvelopeMatches ? 'canonical action envelope mismatch' : !actionEnvelopeHashConsistent ? 'action envelope hash inconsistent' : decayed ? decay.reason : !actionEnvelopeHashMatches ? 'action envelope hash mismatch' : (sigResult.reason ?? 'verification failed');
+        const valid = recordActive && actionIndexMatches && canonicalActionEnvelopeMatches && actionEnvelopeHashConsistent && domainCanonicalMatches && domainHashConsistent && domainHashMatches && domainIdMatches && actionEnvelopeShape.valid && sigResult.valid && actionEnvelopeHashMatches && !decayed;
+        const reason = valid ? undefined : !recordActive ? 'record inactive' : !actionIndexMatches ? 'action index not registered' : !canonicalActionEnvelopeMatches ? 'canonical action envelope mismatch' : !actionEnvelopeHashConsistent ? 'action envelope hash inconsistent' : !domainCanonicalMatches ? 'domain canonical info mismatch' : !domainHashConsistent ? 'domain hash inconsistent' : !domainHashMatches ? 'domain hash mismatch' : !domainIdMatches ? 'domain id mismatch' : !actionEnvelopeShape.valid ? actionEnvelopeShape.reason : decayed ? decay.reason : !actionEnvelopeHashMatches ? 'action envelope hash mismatch' : (sigResult.reason ?? 'verification failed');
         return {
             type: 'agentenvelope.verificationReport',
             version: 1,
@@ -498,7 +517,7 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
             actionEnvelopeHash: record.actionEnvelopeHash,
             legitimacyRef: record.legitimacyRef,
             ...(expectedActionEnvelopeHash ? { expectedActionEnvelopeHash } : {}),
-            checks: { recordActive, actionRegistered: actionIndexMatches, canonicalActionEnvelopeMatches, actionEnvelopeHashConsistent, signatureWellFormed, signatureValid: sigResult.valid, addressMatchesRecord: sigResult.valid, actionEnvelopeHashMatches, decayed },
+            checks: { recordActive, actionRegistered: actionIndexMatches, canonicalActionEnvelopeMatches, actionEnvelopeHashConsistent, domainCanonicalMatches, domainHashConsistent, domainHashMatches, domainIdMatches, actionEnvelopeShapeValid: actionEnvelopeShape.valid, signatureWellFormed, signatureValid: sigResult.valid, addressMatchesRecord: sigResult.valid, actionEnvelopeHashMatches, decayed },
             addresses: { agentAddress: record.agentAddress, ...(sigResult.recoveredAddress ? { recoveredActionAddress: sigResult.recoveredAddress } : {}) },
             domain: {
                 domainId: record.domain?.domainInfo?.domainId ?? record.domain?.domainId,
@@ -509,6 +528,26 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
     } catch (err) {
         return { type: 'agentenvelope.verificationReport', version: 1, valid: false, reason: err instanceof Error ? err.message : 'verification failed', checkedAt: new Date().toISOString() };
     }
+}
+
+function _validateActionEnvelope(envelope) {
+    if (!Number.isInteger(envelope.actionIndex) || envelope.actionIndex < 0) return { valid: false, reason: 'actionIndex is invalid' };
+    if (typeof envelope.operation !== 'string' || envelope.operation.length === 0) return { valid: false, reason: 'operation is invalid' };
+    if (!Array.isArray(envelope.resources) || envelope.resources.length === 0) return { valid: false, reason: 'resources are invalid' };
+    const { notBefore, notAfter } = envelope.timeWindow ?? {};
+    const hasNotBefore = notBefore !== null && notBefore !== undefined;
+    const hasNotAfter = notAfter !== null && notAfter !== undefined;
+    if (hasNotBefore && !Number.isSafeInteger(notBefore)) return { valid: false, reason: 'timeWindow notBefore is invalid' };
+    if (hasNotAfter && !Number.isSafeInteger(notAfter)) return { valid: false, reason: 'timeWindow notAfter is invalid' };
+    if (hasNotBefore && hasNotAfter && notAfter <= notBefore) return { valid: false, reason: 'timeWindow is invalid' };
+    const mode = envelope.decayPolicy?.mode;
+    if (!Object.values(DECAY_MODES).includes(mode)) return { valid: false, reason: 'decayPolicy mode is invalid' };
+    if ((mode === DECAY_MODES.TIME || mode === DECAY_MODES.BOTH) && !hasNotBefore && !hasNotAfter) return { valid: false, reason: 'timeWindow is required' };
+    const maxUses = envelope.limits?.maxUses;
+    if ((mode === DECAY_MODES.ACTION || mode === DECAY_MODES.BOTH) && (!Number.isSafeInteger(maxUses) || maxUses < 1)) return { valid: false, reason: 'maxUses is invalid' };
+    if ((mode === DECAY_MODES.NONE || mode === DECAY_MODES.TIME) && maxUses !== null && maxUses !== undefined && (!Number.isSafeInteger(maxUses) || maxUses < 1)) return { valid: false, reason: 'maxUses is invalid' };
+    if (envelope.limits?.enforcement !== 'external') return { valid: false, reason: 'limits enforcement is invalid' };
+    return { valid: true };
 }
 
 // Local decay check. NONE and ACTION do not fail locally because ACTION depends
