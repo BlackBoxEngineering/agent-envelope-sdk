@@ -45,6 +45,17 @@ inputs, rather than issued as a bearer credential by a central service.
 The optional AgentEnvelope service layer for public records, mint receipts, verification events,
 audit trails, billing, API-keyed metering, and policy controls.
 
+## Legitimacy
+
+Governance admissibility for an authority under current policy, evidence, and time. Legitimacy is
+additive state: a signature can remain cryptographically valid while its legitimacy is suspended or
+denied. It never alters the v1 authority tree.
+
+## Legitimacy Reference
+
+An optional pointer (`legitimacyRef`) from a mint delegate or public action record to a legitimacy
+state. On a mint delegate it is signed content; on a public action record it is metadata.
+
 ## Mint Delegate
 
 A domain-signed permit that lets a bot request bounded action capabilities without touching the

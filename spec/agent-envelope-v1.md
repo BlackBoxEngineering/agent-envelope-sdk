@@ -50,6 +50,10 @@ Implementations MUST use:
 
 All byte strings used as private seeds in v1 MUST be 32 bytes.
 
+v1 `keccak-256` is the Keccak-256 function used by Ethereum address and signature ecosystems
+(original Keccak padding), not the FIPS 202 SHA3-256 variant. Implementations MUST NOT substitute
+SHA3-256 where v1 specifies keccak-256.
+
 If a 32-byte seed is not a valid secp256k1 scalar, implementations MUST transform it to a valid
 scalar using the v1 `seedToKey` retry behavior: HKDF-SHA256 with the same salt and info string
 `key`, retrying no more than 8 times. Implementations SHOULD expose this through the SDK function
@@ -64,6 +68,15 @@ All derivation, content hash, and signing inputs MUST use canonical JSON:
 - array order preserved;
 - normal JSON encoding for primitives;
 - no added whitespace.
+
+To avoid cross-runtime numeric ambiguity, v1 derivation, content hash, and signing inputs MUST NOT
+contain floating-point JSON numbers. Numeric values in those inputs MUST be integers represented in
+canonical decimal form, without exponent notation, leading plus signs, insignificant fractional
+components, or negative zero. Where a value cannot be represented safely and interoperably as an
+integer, it SHOULD be represented as a string.
+
+v1 canonical JSON is not the JSON Canonicalization Scheme (RFC 8785). v1 interoperability is
+defined by this section and the published v1 test vectors.
 
 Example:
 
@@ -297,12 +310,13 @@ interface PublicActionRecord {
   actionEnvelope: ActionEnvelope
   canonicalActionEnvelope: string
   actionEnvelopeHash: string
+  legitimacyRef?: LegitimacyRef
   expiry: string | null
 }
 ```
 
-`ownerUserId`, `recordId`, `createdAt`, and `expiry` are metadata. They MUST NOT enter key
-derivation.
+`ownerUserId`, `recordId`, `createdAt`, `legitimacyRef`, and `expiry` are metadata. They MUST NOT
+enter key derivation.
 
 Public records MUST NOT contain private signing material.
 
@@ -369,6 +383,7 @@ interface MintDelegate {
   type: 'agentenvelope.mintDelegate'
   version: 1
   delegateId: string
+  legitimacyRef?: LegitimacyRef
   issuerAddress: string
   avatarAddress?: string
   domainHash: string
@@ -394,6 +409,11 @@ The delegate id MUST be:
 
 `issuerSignature` MUST sign the delegate body without `issuerSignature` using the MintDelegate
 signing prefix.
+
+When `legitimacyRef` is present it is part of the signed delegate body: it enters `delegateHash`
+and therefore the remote-mint derivation input. `legitimacyRef.legitimacyId` MUST be a string;
+`stateVersion`, when present, MUST be a positive integer; `stateHash`, when present, MUST be
+`0x`-prefixed 32-byte lowercase hex.
 
 When `botPolicy` is `address-set`, `allowedBotAddresses` MUST be present and non-empty.
 
@@ -478,6 +498,38 @@ HKDF-SHA256(
 
 The resulting action seed signs action payloads using the normal action signing prefix.
 
+## Legitimacy References
+
+Legitimacy is additive governance state: it records whether an authority remains admissible under
+current policy, evidence, and time. It MUST NOT alter derived seeds, agent addresses, canonical
+action envelopes, or the v1 authority tree. A signature MAY be valid while legitimacy is denied.
+
+A legitimacy reference has this shape:
+
+```ts
+interface LegitimacyRef {
+  legitimacyId: string
+  required?: boolean
+  policyId?: string
+  stateVersion?: number
+  stateHash?: string
+}
+```
+
+On a `MintDelegate`, `legitimacyRef` is signed content. On a `PublicActionRecord`, it is metadata.
+
+An SDK-side legitimacy state check treats a state as currently legitimate only when all of the
+following hold:
+
+- `type` is `agentenvelope.legitimacyState`;
+- `version` is `1`;
+- `status` is `legitimate`;
+- `expiresAt`, when present, is later than the evaluation time.
+
+The full legitimacy model, including evidence statements, events, profiles, and deterministic
+evaluation, is described in the AgentEnvelope Internet-Draft series
+(`draft-mcphillips-agentenvelope-derived-authority`).
+
 ## Receipt Attestation
 
 Hosted AgentEnvelope verifiers MAY sign their own verification or mint receipts. Attestation is
@@ -506,8 +558,8 @@ attester address is:
 ## Hosted API Boundary
 
 The hosted AgentEnvelope API MAY store encrypted workspace state, safe metadata, public action
-records, stored delegates, verification events, audit events, billing records, API key hashes, and
-mint ledgers.
+records, stored delegates, verification events, audit events, billing records, API key hashes,
+mint ledgers, legitimacy state, and legitimacy events.
 
 The hosted API MUST NOT receive, derive, persist, log, or return:
 

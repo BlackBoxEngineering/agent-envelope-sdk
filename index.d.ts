@@ -166,6 +166,8 @@ export interface VerifyRecordResult {
     checks?: {
         recordActive: boolean;
         actionRegistered: boolean;
+        canonicalActionEnvelopeMatches: boolean;
+        actionEnvelopeHashConsistent: boolean;
         signatureWellFormed: boolean;
         signatureValid: boolean;
         addressMatchesRecord: boolean;

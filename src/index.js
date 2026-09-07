@@ -469,6 +469,8 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
         if (!record.actionEnvelope || typeof record.actionEnvelope !== 'object') throw new Error('action envelope is required');
         const recordActive = record.status === 'active';
         const actionIndexMatches = record.actionEnvelope.actionIndex === actionIndex;
+        const canonicalActionEnvelopeMatches = record.canonicalActionEnvelope === canonicalJSON(record.actionEnvelope);
+        const actionEnvelopeHashConsistent = typeof record.actionEnvelopeHash === 'string' && record.actionEnvelopeHash.toLowerCase() === contentHash(record.canonicalActionEnvelope ?? '').toLowerCase();
         const decay = _checkDecay(record.actionEnvelope);
         const decayed = !decay.valid;
         const actionEnvelopeHashMatches = !expectedActionEnvelopeHash || expectedActionEnvelopeHash.toLowerCase() === record.actionEnvelopeHash.toLowerCase();
@@ -483,8 +485,8 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
               })()
             : { valid: false, reason: 'action index not registered' };
         const signatureWellFormed = sigResult.reason !== 'signature must be 65 bytes' && sigResult.reason !== 'signature recovery byte must be 27 or 28';
-        const valid = recordActive && actionIndexMatches && sigResult.valid && actionEnvelopeHashMatches && !decayed;
-        const reason = valid ? undefined : !recordActive ? 'record inactive' : !actionIndexMatches ? 'action index not registered' : decayed ? decay.reason : !actionEnvelopeHashMatches ? 'action envelope hash mismatch' : (sigResult.reason ?? 'verification failed');
+        const valid = recordActive && actionIndexMatches && canonicalActionEnvelopeMatches && actionEnvelopeHashConsistent && sigResult.valid && actionEnvelopeHashMatches && !decayed;
+        const reason = valid ? undefined : !recordActive ? 'record inactive' : !actionIndexMatches ? 'action index not registered' : !canonicalActionEnvelopeMatches ? 'canonical action envelope mismatch' : !actionEnvelopeHashConsistent ? 'action envelope hash inconsistent' : decayed ? decay.reason : !actionEnvelopeHashMatches ? 'action envelope hash mismatch' : (sigResult.reason ?? 'verification failed');
         return {
             type: 'agentenvelope.verificationReport',
             version: 1,
@@ -496,7 +498,7 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
             actionEnvelopeHash: record.actionEnvelopeHash,
             legitimacyRef: record.legitimacyRef,
             ...(expectedActionEnvelopeHash ? { expectedActionEnvelopeHash } : {}),
-            checks: { recordActive, actionRegistered: actionIndexMatches, signatureWellFormed, signatureValid: sigResult.valid, addressMatchesRecord: sigResult.valid, actionEnvelopeHashMatches, decayed },
+            checks: { recordActive, actionRegistered: actionIndexMatches, canonicalActionEnvelopeMatches, actionEnvelopeHashConsistent, signatureWellFormed, signatureValid: sigResult.valid, addressMatchesRecord: sigResult.valid, actionEnvelopeHashMatches, decayed },
             addresses: { agentAddress: record.agentAddress, ...(sigResult.recoveredAddress ? { recoveredActionAddress: sigResult.recoveredAddress } : {}) },
             domain: {
                 domainId: record.domain?.domainInfo?.domainId ?? record.domain?.domainId,

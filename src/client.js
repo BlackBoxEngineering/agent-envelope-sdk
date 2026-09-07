@@ -81,6 +81,17 @@ export class AgentEnvelopeClient {
     }
 
     /**
+     * Fetch a stored mint delegate by delegate id.
+     *
+     * @param {string} delegateId  Delegate id to fetch.
+     * @returns {Promise<object>}  Stored signed mint delegate.
+     */
+    async getStoredDelegate(delegateId) {
+        if (typeof delegateId !== 'string' || !/^[a-zA-Z0-9_:-]{1,128}$/.test(delegateId)) throw new Error('delegateId is invalid');
+        return this._json('/sovereign/delegates/' + encodeURIComponent(delegateId), { method: 'GET' });
+    }
+
+    /**
      * Submit a signed delegate and signed mint request to hosted governance.
      * The service performs stateful checks such as replay, maxMints, and policy.
      *

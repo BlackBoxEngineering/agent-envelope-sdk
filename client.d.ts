@@ -61,6 +61,9 @@ export declare class AgentEnvelopeClient {
     /** Fetches a published public agent/action record by agent id. */
     getAgent(agentId: string): Promise<unknown>;
 
+    /** Fetches a stored mint delegate by delegate id. */
+    getStoredDelegate(delegateId: string): Promise<unknown>;
+
     /** Submits a signed delegate and signed mint request to hosted governance. */
     mint(input: MintApiInput): Promise<unknown>;
 
