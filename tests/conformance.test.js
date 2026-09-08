@@ -31,6 +31,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const vector = JSON.parse(await readFile(new URL('../spec/vectors/v1-core.json', import.meta.url), 'utf8'));
+const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const FIXED_NOW = Date.parse('2026-08-17T12:00:00.000Z');
 const ROOT_SOURCE = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -494,7 +495,7 @@ test('npm pack dry-run includes vectors and tests without hosted client in root 
     const [pack] = JSON.parse(stdout);
     const files = new Set(pack.files.map((file) => file.path));
     assert.equal(pack.name, 'agent-envelope-sdk');
-    assert.equal(pack.version, '1.4.2');
+    assert.equal(pack.version, packageJson.version);
     assert.equal(files.has('spec/vectors/v1-core.json'), true);
     assert.equal(files.has('tests/conformance.test.js'), true);
     assert.equal(files.has('tests/client.test.js'), true);

@@ -22,9 +22,14 @@ This is the **substrate**, not the product. Two paths:
 
 - **Use AgentEnvelope hosted governance** — optional managed layer at
   [agentenvelope.io](https://agentenvelope.io). Adds vault management, delegate issuance,
-  public records, mint receipts, legitimacy checks, usage enforcement, audit trails.
+  public records, mint receipts, delegate revocation, maxMints and nonce-replay checks,
+  legitimacy checks, usage ledgers, audit trails.
 
 Neither path requires the other.
+
+Importing from `agent-envelope-sdk` loads only sovereign/offline primitives. Hosted APIs are
+opt-in through `agent-envelope-sdk/client`; API keys meter governance services and are never
+agent signing authority.
 
 ## The cryptographic model
 
@@ -39,6 +44,9 @@ no network.
 
 Verification always works offline. Hosted attestation (`verifyReceipt`) is additive — it
 certifies AgentEnvelope's signed statement about a verdict. It never gates the offline path.
+Offline verification proves provenance and integrity; it does not prove nonce freshness,
+delegate revocation state, live legitimacy state, or whether a max-use slot has already been
+consumed.
 
 ## Specification
 
@@ -157,6 +165,11 @@ hosted delegate contains `legitimacyRef.required === true`, the hosted mint rout
 to sign the matching `legitimacyId` into the `MintRequest`; missing or wrong-scope legitimacy is
 rejected before a capability is authorised.
 
+`any-signed-bot` is intentionally broad: any bot that can sign the mint request may mint within the
+delegate's bounds. Use it only when possession of the delegate is the intended authority boundary.
+For named workers or regulated deployments, issue delegates with `botPolicy: 'address-set'` and
+`allowedBotAddresses`.
+
 ### Verify a hosted attestation
 
 When the hosted verifier is provisioned with an attestation key, verify reports and mint receipts
@@ -177,7 +190,7 @@ console.log(result.valid, result.attesterAddress);
 | Stateless verification | Verifies signatures against public records without seed disclosure |
 | Scoped capabilities | Each capability is bound to a specific operation, resource set, and time window |
 | Mathematical decay | Time expiry is enforced from the public record |
-| Usage limits | Max-use counts are published in the public record |
+| Usage limits | `maxUses` is signed into the record; consumption counters require caller or governed state |
 | No hosted seed custody | Signing material never leaves the worker |
 
 ---
