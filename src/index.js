@@ -10,20 +10,24 @@ const SECP256K1_N = secp256k1.CURVE.n;
 const LOWER_HEX_20 = /^0x[a-f0-9]{40}$/;
 const LOWER_HEX_32 = /^0x[a-f0-9]{64}$/;
 
-// Internal byte prefixes.
-// Protocol domain separators used before hashing/signing.
-// _a: action message
-// _b: mint delegate
-// _c: mint request
-// _d: receipt attestation
-// _s: HKDF salt/context
+// Internal byte prefixes — protocol domain separators.
+// Prepended before every hash/sign operation to ensure signatures from one
+// context can never be valid in another, even if the body content is identical.
+// This is a cryptographic guarantee, not a convention — the prefix is baked
+// into the hash input so cross-context replay is structurally impossible.
+//
+// _a: action message      '\x19AgentEnvelope Signed Message:\n'
+// _b: mint delegate       '\x19AgentEnvelope Mint Delegate:\n'
+// _c: mint request        '\x19AgentEnvelope Mint Request:\n'
+// _d: receipt attestation '\x19AgentEnvelope Attestation:\n'
+// _s: HKDF salt/context   'agentenvelope-v1'
 const _a = encoder.encode('\x19AgentEnvelope Signed Message:\n');
 const _b = encoder.encode('\x19AgentEnvelope Mint Delegate:\n');
 const _c = encoder.encode('\x19AgentEnvelope Mint Request:\n');
 const _d = encoder.encode('\x19AgentEnvelope Attestation:\n');
 const _s = encoder.encode('agentenvelope-v1');
 
-// Concatenate a domain separator with an already-encoded message.
+// prefix(pre,msg) = pre||msg
 function _prefix(pre, msg) {
     const b = new Uint8Array(pre.length + msg.length);
     b.set(pre);
@@ -31,12 +35,17 @@ function _prefix(pre, msg) {
     return b;
 }
 
-// Hash a message with the AgentEnvelope prefix for signing.
+// H(msg) = Keccak256(msg)
 function _msgHash(message) {
     return keccak_256(_prefix(_a, encoder.encode(canonicalJSON(message))));
 }
 
-// Derive a valid secp256k1 private key from a 32-byte seed using HKDF.
+// H(receipt) = Keccak256(receipt)
+function _receiptHash(receiptBody) {
+    return keccak_256(_prefix(_d, encoder.encode(canonicalJSON(receiptBody))));
+}
+
+// k = min{ k_i | 1 ≤ k_i < N },  k0 = seed,  k_{i+1} = HKDF_SHA256(k_i, s, "key", 32)
 function _seedToKey(seed) {
     if (!(seed instanceof Uint8Array) || seed.length !== 32) throw new Error('seed must be a 32-byte Uint8Array');
     let key = seed;
@@ -47,19 +56,52 @@ function _seedToKey(seed) {
     throw new Error('could not derive valid key');
 }
 
-// Derive the Ethereum address for a given 32-byte seed.
+// addr = LSB20( Keccak256( Pub(k)[1:] ) ),  k = min{ k_i | 1 ≤ k_i < N },  k_{i+1} = HKDF_SHA256(k_i, s, "key", 32)
 function _seedAddr(seed) {
     const pub = secp256k1.getPublicKey(_seedToKey(seed), false);
     return `0x${bytesToHex(keccak_256(pub.slice(1)).slice(-20))}`;
 }
 
+// valid(e) = shape(e) ∧ policy(e.decayPolicy, e.timeWindow, e.limits)
+function _validateActionEnvelope(envelope) {
+    if (!Number.isInteger(envelope.actionIndex) || envelope.actionIndex < 0) return { valid: false, reason: 'actionIndex is invalid' };
+    if (typeof envelope.operation !== 'string' || envelope.operation.length === 0) return { valid: false, reason: 'operation is invalid' };
+    if (!Array.isArray(envelope.resources) || envelope.resources.length === 0) return { valid: false, reason: 'resources are invalid' };
+    const { notBefore, notAfter } = envelope.timeWindow ?? {};
+    const hasNotBefore = notBefore !== null && notBefore !== undefined;
+    const hasNotAfter = notAfter !== null && notAfter !== undefined;
+    if (hasNotBefore && !Number.isSafeInteger(notBefore)) return { valid: false, reason: 'timeWindow notBefore is invalid' };
+    if (hasNotAfter && !Number.isSafeInteger(notAfter)) return { valid: false, reason: 'timeWindow notAfter is invalid' };
+    if (hasNotBefore && hasNotAfter && notAfter <= notBefore) return { valid: false, reason: 'timeWindow is invalid' };
+    const mode = envelope.decayPolicy?.mode;
+    if (!Object.values(DECAY_MODES).includes(mode)) return { valid: false, reason: 'decayPolicy mode is invalid' };
+    if ((mode === DECAY_MODES.TIME || mode === DECAY_MODES.BOTH) && !hasNotBefore && !hasNotAfter) return { valid: false, reason: 'timeWindow is required' };
+    const maxUses = envelope.limits?.maxUses;
+    if ((mode === DECAY_MODES.ACTION || mode === DECAY_MODES.BOTH) && (!Number.isSafeInteger(maxUses) || maxUses < 1)) return { valid: false, reason: 'maxUses is invalid' };
+    if ((mode === DECAY_MODES.NONE || mode === DECAY_MODES.TIME) && maxUses !== null && maxUses !== undefined && (!Number.isSafeInteger(maxUses) || maxUses < 1)) return { valid: false, reason: 'maxUses is invalid' };
+    if (envelope.limits?.enforcement !== 'external') return { valid: false, reason: 'limits enforcement is invalid' };
+    return { valid: true };
+}
+
+// decayed(e) = mode ∈ {TIME,BOTH} ∧ ( now < notBefore ∨ now > notAfter )
+function _checkDecay(envelope) {
+    const mode = envelope.decayPolicy?.mode;
+    if (mode === DECAY_MODES.NONE || mode === DECAY_MODES.ACTION) return { valid: true };
+    const now = Date.now();
+    const { notBefore, notAfter } = envelope.timeWindow ?? {};
+    if (notBefore != null && now < notBefore) return { valid: false, reason: 'not yet valid' };
+    if (notAfter != null && now > notAfter) return { valid: false, reason: 'expired' };
+    return { valid: true };
+}
+
 /**
- * Return deterministic JSON for hashing/signing.
- * Object keys are sorted; array order is preserved because arrays are ordered
- * data. Normalize arrays before calling this if their order should not matter.
+ * Deterministic JSON for hashing/signing ensures same data always produces the same string output.
+ * canonicalJSON(v) = JSON_encode( sortKeys( sanitize(v) ) )
+ * sanitize rejects { undefined, function, symbol, bigint, NaN, ±Infinity, -0 }
+ * numbers must be safe integers; arrays preserve order; objects sort keys lexicographically.
  *
  * @param {unknown} value  Value to encode deterministically.
- * @returns {string}      Canonical JSON string.
+ * @returns {string}       Canonical JSON string.
  */
 export function canonicalJSON(value) {
     if (value === undefined || typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') throw new Error('value must be JSON-serializable');
@@ -75,21 +117,28 @@ export function canonicalJSON(value) {
 }
 
 /**
- * Hash raw/canonical content with SHA-256 for stable identifiers/fingerprints.
+ * Stable SHA‑256 content hashing.
+ * contentHash(v) = "0x" + SHA256( UTF8( v is string ? v : canonicalJSON(v) ) )
+ * Strings hash as‑is; all other values are canonicalized first.
+ * Output is a 0x‑prefixed 32‑byte SHA‑256 fingerprint.
  *
- * @param {unknown} value  String or JSON-compatible value to hash.
- * @returns {string}      0x-prefixed SHA-256 content hash.
+ * @param {unknown} value  String or JSON‑compatible value to hash.
+ * @returns {string}       0x‑prefixed SHA‑256 content hash.
  */
+
 export function contentHash(value) {
     const input = typeof value === 'string' ? value : canonicalJSON(value);
     return `0x${bytesToHex(sha256(encoder.encode(input)))}`;
 }
 
 /**
- * Convert a hex string to a Uint8Array of bytes. Accepts an optional 0x prefix.
+ * Hex → bytes conversion.
+ * hexToBytes(h) = Uint8Array( each byte = parseInt( h[i:i+2], 16 ) )
+ * Accepts optional "0x" prefix; rejects non‑hex characters and odd‑length input.
+ * Output length = |h| / 2 bytes.
  *
- * @param {string} value  Even-length hex string.
- * @returns {Uint8Array} Bytes decoded from the hex string.
+ * @param {string} value  Hex string (with or without 0x prefix).
+ * @returns {Uint8Array}  Raw bytes represented by the hex string.
  */
 export function hexToBytes(value) {
     const hex = value.startsWith('0x') ? value.slice(2) : value;
@@ -159,6 +208,10 @@ export function verifyAction({ message, signature, expectedAddress }) {
 
 /**
  * Check whether an authority is currently allowed by a legitimacy state object.
+ * This is a local check only, it trusts whatever the hosted governance layer
+ * put in the state object. expiresAt and status are only meaningful when the
+ * state comes from a trusted hosted source; a locally constructed state with
+ * no expiresAt will never expire.
  *
  * @param {object} state  Legitimacy state from governance.
  * @returns {object}     Validity result with optional reason.
@@ -177,9 +230,6 @@ export function isAuthorityLegitimate(state) {
 // computed. The SDK can verify receipt self-consistency locally, but trust needs
 // a pinned attester address from outside the receipt, such as published docs,
 // configuration, or another trusted governance channel.
-function _receiptHash(receiptBody) {
-    return keccak_256(_prefix(_d, encoder.encode(canonicalJSON(receiptBody))));
-}
 
 /**
  * Sign a hosted/governance verifier receipt.
@@ -530,34 +580,3 @@ export function verifyRecord(record, { payload, signature, actionIndex, expected
     }
 }
 
-function _validateActionEnvelope(envelope) {
-    if (!Number.isInteger(envelope.actionIndex) || envelope.actionIndex < 0) return { valid: false, reason: 'actionIndex is invalid' };
-    if (typeof envelope.operation !== 'string' || envelope.operation.length === 0) return { valid: false, reason: 'operation is invalid' };
-    if (!Array.isArray(envelope.resources) || envelope.resources.length === 0) return { valid: false, reason: 'resources are invalid' };
-    const { notBefore, notAfter } = envelope.timeWindow ?? {};
-    const hasNotBefore = notBefore !== null && notBefore !== undefined;
-    const hasNotAfter = notAfter !== null && notAfter !== undefined;
-    if (hasNotBefore && !Number.isSafeInteger(notBefore)) return { valid: false, reason: 'timeWindow notBefore is invalid' };
-    if (hasNotAfter && !Number.isSafeInteger(notAfter)) return { valid: false, reason: 'timeWindow notAfter is invalid' };
-    if (hasNotBefore && hasNotAfter && notAfter <= notBefore) return { valid: false, reason: 'timeWindow is invalid' };
-    const mode = envelope.decayPolicy?.mode;
-    if (!Object.values(DECAY_MODES).includes(mode)) return { valid: false, reason: 'decayPolicy mode is invalid' };
-    if ((mode === DECAY_MODES.TIME || mode === DECAY_MODES.BOTH) && !hasNotBefore && !hasNotAfter) return { valid: false, reason: 'timeWindow is required' };
-    const maxUses = envelope.limits?.maxUses;
-    if ((mode === DECAY_MODES.ACTION || mode === DECAY_MODES.BOTH) && (!Number.isSafeInteger(maxUses) || maxUses < 1)) return { valid: false, reason: 'maxUses is invalid' };
-    if ((mode === DECAY_MODES.NONE || mode === DECAY_MODES.TIME) && maxUses !== null && maxUses !== undefined && (!Number.isSafeInteger(maxUses) || maxUses < 1)) return { valid: false, reason: 'maxUses is invalid' };
-    if (envelope.limits?.enforcement !== 'external') return { valid: false, reason: 'limits enforcement is invalid' };
-    return { valid: true };
-}
-
-// Local decay check. NONE and ACTION do not fail locally because ACTION depends
-// on externally tracked use counts; TIME and BOTH can fail on time windows here.
-function _checkDecay(envelope) {
-    const mode = envelope.decayPolicy?.mode;
-    if (mode === DECAY_MODES.NONE || mode === DECAY_MODES.ACTION) return { valid: true };
-    const now = Date.now();
-    const { notBefore, notAfter } = envelope.timeWindow ?? {};
-    if (notBefore != null && now < notBefore) return { valid: false, reason: 'not yet valid' };
-    if (notAfter != null && now > notAfter) return { valid: false, reason: 'expired' };
-    return { valid: true };
-}
