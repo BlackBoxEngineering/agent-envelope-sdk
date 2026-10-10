@@ -75,3 +75,60 @@ test('client wraps hosted errors without making hosted authority required', asyn
         globalThis.fetch = originalFetch;
     }
 });
+
+test('client unwraps successful API Gateway proxy responses', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+            return {
+                statusCode: 200,
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ type: 'agentenvelope.sovereignVerificationReport', valid: true }),
+            };
+        },
+    });
+
+    try {
+        const client = new AgentEnvelopeClient({ apiKey: 'test-key' });
+        const report = await client.verifyAction({
+            agentId: 'agent-test',
+            actionIndex: 0,
+            payload: {},
+            signature: `0x${'1'.repeat(130)}`,
+        });
+        assert.deepEqual(report, { type: 'agentenvelope.verificationReport', valid: true });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('client treats an API Gateway proxy error as a hosted API error', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+            return {
+                statusCode: 403,
+                body: JSON.stringify({ code: 'forbidden', message: 'not allowed' }),
+            };
+        },
+    });
+
+    try {
+        const client = new AgentEnvelopeClient({ apiKey: 'test-key' });
+        await assert.rejects(
+            () => client.getStoredDelegate('ae-delegate-test'),
+            (err) => {
+                assert.equal(err instanceof AgentEnvelopeApiError, true);
+                assert.equal(err.status, 403);
+                assert.equal(err.code, 'forbidden');
+                return true;
+            },
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

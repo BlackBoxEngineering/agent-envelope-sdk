@@ -10,6 +10,21 @@
 
 const _BASE = 'https://jemdjwteae.execute-api.us-east-1.amazonaws.com/v1';
 
+function _proxyResponse(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !Number.isInteger(value.statusCode) || !('body' in value)) {
+        return null;
+    }
+    let body = value.body;
+    if (typeof body === 'string') {
+        try {
+            body = JSON.parse(body);
+        } catch {
+            body = { message: body };
+        }
+    }
+    return { status: value.statusCode, body };
+}
+
 /**
  * Error wrapper for non-2xx hosted API responses.
  * Keeps the HTTP status, service error code/body, and any legitimacy decision
@@ -153,8 +168,10 @@ export class AgentEnvelopeClient {
             ...init,
             headers: this._headers(),
         });
-        const body = await res.json().catch(() => null);
-        if (!res.ok) throw new AgentEnvelopeApiError(res.status, body);
-        return body;
+        const responseBody = await res.json().catch(() => null);
+        if (!res.ok) throw new AgentEnvelopeApiError(res.status, responseBody);
+        const proxy = _proxyResponse(responseBody);
+        if (proxy && proxy.status >= 400) throw new AgentEnvelopeApiError(proxy.status, proxy.body);
+        return proxy ? proxy.body : responseBody;
     }
 }
